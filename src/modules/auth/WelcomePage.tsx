@@ -16,7 +16,7 @@ export const WelcomePage: React.FC = () => {
         <div className="grid lg:grid-cols-12 gap-8 lg:gap-12 items-stretch">
           <div className="lg:col-span-6 flex flex-col justify-between space-y-6">
             <div className="space-y-5">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <BrandLogo size="lg" />
                 <PWAInstallButton />
               </div>

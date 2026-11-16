@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import {
   GoogleAuthProvider,
   confirmPasswordReset,
@@ -162,6 +163,15 @@ export async function initializeUserDocuments(
   await batch.commit();
 }
 
+const PUBLIC_WEB_ORIGIN = 'https://ais-pre-dj7zeddnfchgopwqeu36fl-839173396062.us-east1.run.app';
+
+function getAuthContinueOrigin(): string {
+  if (Capacitor.isNativePlatform()) {
+    return PUBLIC_WEB_ORIGIN;
+  }
+  return window.location.origin;
+}
+
 export async function registerUser(payload: RegisterPayload) {
   const credential = await createUserWithEmailAndPassword(
     auth,
@@ -190,7 +200,7 @@ export async function registerUser(payload: RegisterPayload) {
   });
 
   await sendEmailVerification(firebaseUser, {
-    url: `${window.location.origin}/iniciar-sesion`,
+    url: `${getAuthContinueOrigin()}/iniciar-sesion`,
   });
 
   return { user: firebaseUser };
@@ -235,7 +245,7 @@ export async function resendVerificationEmail(): Promise<void> {
     throw new Error('Inicia sesión primero para reenviar el correo de verificación.');
   }
   await sendEmailVerification(current, {
-    url: `${window.location.origin}/iniciar-sesion`,
+    url: `${getAuthContinueOrigin()}/iniciar-sesion`,
   });
 }
 
@@ -245,7 +255,7 @@ export async function signOutUser(): Promise<void> {
 
 export async function sendPasswordRecovery(email: string): Promise<void> {
   await sendPasswordResetEmail(auth, email.trim(), {
-    url: `${window.location.origin}/restablecer-contrasena`,
+    url: `${getAuthContinueOrigin()}/restablecer-contrasena`,
   });
 }
 

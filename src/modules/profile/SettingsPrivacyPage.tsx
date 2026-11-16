@@ -50,10 +50,10 @@ export const SettingsPrivacyPage: React.FC = () => {
         <div className="space-y-1">
           <div className="flex items-center gap-2 font-display font-bold text-white">
             <Smartphone className="h-5 w-5 text-[#FFA94D]" />
-            <h2>Aplicación instalable (PWA)</h2>
+            <h2>Aplicación Android (APK) y PWA</h2>
           </div>
           <p className="text-xs text-slate-200">
-            Instala PoliCircular en tu teléfono Android, iPhone o escritorio para acceso rápido.
+            Descarga el archivo APK para Android o instala PoliCircular como aplicación en tu teléfono o escritorio.
           </p>
         </div>
         <PWAInstallButton />

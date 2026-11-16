@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -195,6 +196,8 @@ export const RegisterPage: React.FC = () => {
     );
   }
 
+  const isNativeAndroid = Capacitor.isNativePlatform();
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
       <div className="rounded-2xl border border-[#244B73] bg-[#102C49] p-6 sm:p-8 shadow-sm">
@@ -206,26 +209,30 @@ export const RegisterPage: React.FC = () => {
           Tu teléfono, correo y domicilio exacto nunca se muestran públicamente. La plataforma funciona sin dinero ni compraventa.
         </p>
 
-        <button
-          type="button"
-          onClick={handleGoogleSignUp}
-          disabled={googleBusy || !isFirebaseConfigured}
-          className="w-full mb-5 rounded-xl border border-[#3B648F] bg-white py-2.5 px-4 text-sm font-semibold text-[#102C49] hover:bg-slate-100 transition-colors flex items-center justify-center gap-2.5 min-h-[44px] disabled:opacity-50"
-        >
-          <span className="h-5 w-5 rounded-full bg-[#102C49] text-white text-xs font-bold flex items-center justify-center">
-            G
-          </span>
-          <span>{googleBusy ? 'Conectando con Google...' : 'Registrarse rápido con Google'}</span>
-        </button>
+        {!isNativeAndroid && (
+          <>
+            <button
+              type="button"
+              onClick={handleGoogleSignUp}
+              disabled={googleBusy || !isFirebaseConfigured}
+              className="w-full mb-5 rounded-xl border border-[#3B648F] bg-white py-2.5 px-4 text-sm font-semibold text-[#102C49] hover:bg-slate-100 transition-colors flex items-center justify-center gap-2.5 min-h-[44px] disabled:opacity-50"
+            >
+              <span className="h-5 w-5 rounded-full bg-[#102C49] text-white text-xs font-bold flex items-center justify-center">
+                G
+              </span>
+              <span>{googleBusy ? 'Conectando con Google...' : 'Registrarse rápido con Google'}</span>
+            </button>
 
-        <div className="relative mb-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[#244B73]" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-[#102C49] px-3 text-slate-300">o completa el registro con correo</span>
-          </div>
-        </div>
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[#244B73]" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-[#102C49] px-3 text-slate-300">o completa el registro con correo</span>
+              </div>
+            </div>
+          </>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div className="grid sm:grid-cols-2 gap-4">

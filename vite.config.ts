@@ -19,8 +19,8 @@ export default defineConfig(() => {
           short_name: 'PoliCircular',
           description:
             'Regala, intercambia y reutiliza productos en comunidad sin utilizar dinero. Piloto Castro, Chiloé.',
-          theme_color: '#102C49',
-          background_color: '#FFFFFF',
+          theme_color: '#0B1E33',
+          background_color: '#0B1E33',
           display: 'standalone',
           orientation: 'portrait-primary',
           lang: 'es-CL',
