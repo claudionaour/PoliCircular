@@ -1,4 +1,22 @@
-import { isSupabaseConfigured, requireSupabase } from './supabase';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db, handleFirestoreError, OperationType, storage } from './firebase';
+import {
+  fetchImagesByProductIds,
+  fetchLookupMaps,
+  fetchProfilesMap,
+  hydrateProductDoc,
+} from './firestoreHelpers';
 import type { Product, ProductCondition, ProductModality } from '../types/domain';
 
 export interface ProductFilters {
@@ -12,81 +30,116 @@ export interface ProductFilters {
   dateRange?: 'all' | '7d' | '30d';
 }
 
-const PRODUCT_SELECT = `
-  *,
-  categories(id, slug, name, icon_name, estimated_weight_kg),
-  communes(id, name, region, latitude, longitude),
-  sectors(id, name, approx_lat, approx_lng),
-  profiles!products_owner_id_fkey(id, full_name, username, avatar_url, account_type, institution_name, reputation_avg, reputation_count, is_minor_supervised),
-  product_images(id, storage_path, public_url, is_primary, sort_order)
-`;
+function normalizeSearchText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
 
 export async function listApprovedProducts(filters: ProductFilters = {}): Promise<Product[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  let query = sb
-    .from('products')
-    .select(PRODUCT_SELECT)
-    .eq('status', 'approved')
-    .order('created_at', { ascending: false });
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'products'), where('status', '==', 'approved'))
+    );
 
-  if (filters.onlyAvailable !== false) {
-    query = query.gt('available_quantity', 0);
-  }
-  if (filters.categoryId) {
-    query = query.eq('category_id', filters.categoryId);
-  }
-  if (filters.communeId) {
-    query = query.eq('commune_id', filters.communeId);
-  }
-  if (filters.sectorId) {
-    query = query.eq('sector_id', filters.sectorId);
-  }
-  if (filters.modality) {
-    query = query.eq('modality', filters.modality);
-  }
-  if (filters.condition) {
-    query = query.eq('condition', filters.condition);
-  }
-  if (filters.dateRange === '7d') {
-    const d = new Date(Date.now() - 7 * 86400000).toISOString();
-    query = query.gte('created_at', d);
-  } else if (filters.dateRange === '30d') {
-    const d = new Date(Date.now() - 30 * 86400000).toISOString();
-    query = query.gte('created_at', d);
-  }
-  if (filters.search?.trim()) {
-    const q = filters.search.trim();
-    query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
-  }
+    if (snap.empty) return [];
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as Product[];
+    const maps = await fetchLookupMaps();
+    const ownerIds = snap.docs.map((d) => String(d.data().owner_id || ''));
+    const productIds = snap.docs.map((d) => d.id);
+    const [profiles, images] = await Promise.all([
+      fetchProfilesMap(ownerIds),
+      fetchImagesByProductIds(productIds),
+    ]);
+
+    let items = snap.docs.map((docSnap) =>
+      hydrateProductDoc(docSnap.id, docSnap.data(), { ...maps, profiles, images })
+    );
+
+    if (filters.onlyAvailable !== false) {
+      items = items.filter((p) => p.available_quantity > 0);
+    }
+    if (filters.categoryId) {
+      items = items.filter((p) => p.category_id === filters.categoryId);
+    }
+    if (filters.communeId) {
+      items = items.filter((p) => p.commune_id === filters.communeId);
+    }
+    if (filters.sectorId) {
+      items = items.filter((p) => p.sector_id === filters.sectorId);
+    }
+    if (filters.modality) {
+      items = items.filter((p) => p.modality === filters.modality);
+    }
+    if (filters.condition) {
+      items = items.filter((p) => p.condition === filters.condition);
+    }
+    if (filters.dateRange === '7d') {
+      const cutoff = Date.now() - 7 * 86400000;
+      items = items.filter((p) => new Date(p.created_at).getTime() >= cutoff);
+    } else if (filters.dateRange === '30d') {
+      const cutoff = Date.now() - 30 * 86400000;
+      items = items.filter((p) => new Date(p.created_at).getTime() >= cutoff);
+    }
+    if (filters.search?.trim()) {
+      const qNorm = normalizeSearchText(filters.search.trim());
+      items = items.filter(
+        (p) =>
+          normalizeSearchText(p.title).includes(qNorm) ||
+          normalizeSearchText(p.description).includes(qNorm) ||
+          normalizeSearchText(p.categories?.name || '').includes(qNorm)
+      );
+    }
+
+    return items.sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'products');
+  }
 }
 
 export async function listMyProducts(userId: string): Promise<Product[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  const { data, error } = await sb
-    .from('products')
-    .select(PRODUCT_SELECT)
-    .eq('owner_id', userId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Product[];
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'products'), where('owner_id', '==', userId))
+    );
+    if (snap.empty) return [];
+
+    const maps = await fetchLookupMaps();
+    const productIds = snap.docs.map((d) => d.id);
+    const [profiles, images] = await Promise.all([
+      fetchProfilesMap([userId]),
+      fetchImagesByProductIds(productIds),
+    ]);
+
+    return snap.docs
+      .map((docSnap) =>
+        hydrateProductDoc(docSnap.id, docSnap.data(), { ...maps, profiles, images })
+      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'products');
+  }
 }
 
 export async function getProductById(productId: string): Promise<Product | null> {
-  if (!isSupabaseConfigured) return null;
-  const sb = requireSupabase();
-  const { data, error } = await sb
-    .from('products')
-    .select(PRODUCT_SELECT)
-    .eq('id', productId)
-    .maybeSingle();
-  if (error) throw error;
-  return data as Product | null;
+  try {
+    const snap = await getDoc(doc(db, 'products', productId));
+    if (!snap.exists()) return null;
+
+    const maps = await fetchLookupMaps();
+    const ownerId = String(snap.data().owner_id || '');
+    const [profiles, images] = await Promise.all([
+      fetchProfilesMap([ownerId]),
+      fetchImagesByProductIds([productId]),
+    ]);
+
+    return hydrateProductDoc(snap.id, snap.data(), { ...maps, profiles, images });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `products/${productId}`);
+  }
 }
 
 export interface CreateProductInput {
@@ -105,15 +158,44 @@ export interface CreateProductInput {
 }
 
 export async function createProductWithImages(input: CreateProductInput): Promise<Product> {
-  const sb = requireSupabase();
+  const productRef = doc(collection(db, 'products'));
+  const productId = productRef.id;
 
-  const { data: created, error: insertError } = await sb
-    .from('products')
-    .insert({
+  const uploadedImages: {
+    id: string;
+    storage_path: string;
+    public_url: string;
+    is_primary: boolean;
+    sort_order: number;
+  }[] = [];
+
+  for (let i = 0; i < input.images.length; i++) {
+    const img = input.images[i];
+    const storagePath = `products/${input.ownerId}/${productId}/${Date.now()}_${i}.webp`;
+    const storageRef = ref(storage, storagePath);
+    await uploadBytes(storageRef, img.file, {
+      contentType: img.file.type || 'image/webp',
+      cacheControl: 'public,max-age=3600',
+    });
+    const publicUrl = await getDownloadURL(storageRef);
+    const imgRef = doc(collection(db, 'product_images'));
+    uploadedImages.push({
+      id: imgRef.id,
+      storage_path: storagePath,
+      public_url: publicUrl,
+      is_primary: img.isPrimary,
+      sort_order: i,
+    });
+  }
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(productRef, {
+      id: productId,
       owner_id: input.ownerId,
+      category_id: input.categoryId,
       title: input.title.trim(),
       description: input.description.trim(),
-      category_id: input.categoryId,
       condition: input.condition,
       modality: input.modality,
       desired_exchange_items:
@@ -125,45 +207,42 @@ export async function createProductWithImages(input: CreateProductInput): Promis
       sector_id: input.sectorId || null,
       delivery_method: input.deliveryMethod.trim(),
       status: 'pending',
-    })
-    .select('*')
-    .single();
-
-  if (insertError) throw insertError;
-
-  const productId = created.id as string;
-
-  for (let i = 0; i < input.images.length; i++) {
-    const img = input.images[i];
-    const storagePath = `${input.ownerId}/${productId}/${Date.now()}_${i}.webp`;
-    const { error: uploadError } = await sb.storage
-      .from('product-images')
-      .upload(storagePath, img.file, { cacheControl: '3600', upsert: false });
-
-    if (uploadError) throw uploadError;
-
-    const { data: urlData } = sb.storage.from('product-images').getPublicUrl(storagePath);
-
-    const { error: imgRowError } = await sb.from('product_images').insert({
-      product_id: productId,
-      storage_path: storagePath,
-      public_url: urlData.publicUrl,
-      is_primary: img.isPrimary,
-      sort_order: i,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
     });
 
-    if (imgRowError) throw imgRowError;
+    for (const img of uploadedImages) {
+      batch.set(doc(db, 'product_images', img.id), {
+        id: img.id,
+        product_id: productId,
+        owner_id: input.ownerId,
+        storage_path: img.storage_path,
+        public_url: img.public_url,
+        is_primary: img.is_primary,
+        sort_order: img.sort_order,
+        created_at: serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `products/${productId}`);
   }
 
-  const full = await getProductById(productId);
-  return full ?? (created as Product);
+  const created = await getProductById(productId);
+  if (!created) {
+    throw new Error('La publicación se creó, pero no fue posible recargar su detalle.');
+  }
+  return created;
 }
 
 export async function archiveOwnProduct(productId: string): Promise<void> {
-  const sb = requireSupabase();
-  const { error } = await sb
-    .from('products')
-    .update({ status: 'archived' })
-    .eq('id', productId);
-  if (error) throw error;
+  try {
+    await updateDoc(doc(db, 'products', productId), {
+      status: 'archived',
+      updated_at: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `products/${productId}`);
+  }
 }

@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { CheckCircle2, ShieldAlert, UserPlus } from 'lucide-react';
-import { registerUser } from '../../services/authService';
+import { registerUser, signInWithGoogle } from '../../services/authService';
 import { listActiveCommunes, listSectorsByCommune } from '../../services/territorialService';
-import { isSupabaseConfigured } from '../../services/supabase';
-import { SupabaseSetupNotice } from '../../components/SupabaseSetupNotice';
+import { isFirebaseConfigured, translateFirebaseError } from '../../services/firebase';
+import { SEED_COMMUNES, SEED_SECTORS } from '../../services/seedService';
 import type { Commune, Sector } from '../../types/domain';
 
 const registerSchema = z
@@ -62,10 +62,12 @@ const registerSchema = z
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export const RegisterPage: React.FC = () => {
+  const navigate = useNavigate();
   const [communes, setCommunes] = useState<Commune[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
 
   const {
     register,
@@ -88,15 +90,29 @@ export const RegisterPage: React.FC = () => {
   useEffect(() => {
     listActiveCommunes()
       .then((list) => {
-        setCommunes(list);
-        const castro = list.find((c) => c.name === 'Castro');
+        const effective =
+          list.length > 0
+            ? list
+            : SEED_COMMUNES.filter((c) => c.is_active).map((c) => ({
+                ...c,
+                created_at: new Date().toISOString(),
+              }));
+        setCommunes(effective);
+        const castro = effective.find((c) => c.name === 'Castro');
         if (castro) {
           setValue('communeId', castro.id);
-        } else if (list[0]) {
-          setValue('communeId', list[0].id);
+        } else if (effective[0]) {
+          setValue('communeId', effective[0].id);
         }
       })
-      .catch(() => setCommunes([]));
+      .catch(() => {
+        const fallback = SEED_COMMUNES.filter((c) => c.is_active).map((c) => ({
+          ...c,
+          created_at: new Date().toISOString(),
+        }));
+        setCommunes(fallback);
+        if (fallback[0]) setValue('communeId', fallback[0].id);
+      });
   }, [setValue]);
 
   useEffect(() => {
@@ -105,7 +121,17 @@ export const RegisterPage: React.FC = () => {
       return;
     }
     listSectorsByCommune(selectedCommuneId, true)
-      .then(setSectors)
+      .then((list) => {
+        if (list.length > 0) {
+          setSectors(list);
+        } else {
+          setSectors(
+            SEED_SECTORS.filter((s) => s.commune_id === selectedCommuneId && s.is_active).map(
+              (s) => ({ ...s, created_at: new Date().toISOString() })
+            )
+          );
+        }
+      })
       .catch(() => setSectors([]));
   }, [selectedCommuneId]);
 
@@ -130,24 +156,37 @@ export const RegisterPage: React.FC = () => {
       });
       setRegisteredEmail(values.email);
     } catch (err) {
-      setServerError(err instanceof Error ? err.message : 'No fue posible completar el registro.');
+      setServerError(translateFirebaseError(err));
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    setServerError(null);
+    setGoogleBusy(true);
+    try {
+      await signInWithGoogle();
+      navigate('/perfil', { replace: true });
+    } catch (err) {
+      setServerError(translateFirebaseError(err));
+    } finally {
+      setGoogleBusy(false);
     }
   };
 
   if (registeredEmail) {
     return (
       <div className="max-w-lg mx-auto px-4 py-12">
-        <div className="rounded-2xl border border-[#1E7E48]/30 bg-white p-8 text-center space-y-4">
-          <CheckCircle2 className="h-12 w-12 text-[#1E7E48] mx-auto" />
-          <h1 className="font-display text-2xl font-bold text-[#102C49]">
+        <div className="rounded-2xl border border-[#34D399]/40 bg-[#102C49] p-8 text-center space-y-4">
+          <CheckCircle2 className="h-12 w-12 text-[#6EE7B7] mx-auto" />
+          <h1 className="font-display text-2xl font-bold text-white">
             Verifica tu correo electrónico
           </h1>
-          <p className="text-sm text-slate-600 leading-relaxed">
-            Enviamos un enlace de verificación a <strong>{registeredEmail}</strong>. Una vez confirmado tu correo podrás iniciar sesión, completar tu perfil y publicar en PoliCircular.
+          <p className="text-sm text-slate-200 leading-relaxed">
+            Enviamos un enlace de verificación a <strong className="text-white">{registeredEmail}</strong>. Una vez confirmado tu correo podrás iniciar sesión, completar tu perfil y publicar en PoliCircular.
           </p>
           <Link
             to="/iniciar-sesion"
-            className="inline-block px-6 py-3 rounded-xl bg-[#102C49] text-white text-sm font-semibold hover:bg-[#0B2036]"
+            className="inline-block px-6 py-3 rounded-xl bg-[#F28C28] text-[#0B1E33] text-sm font-bold hover:bg-[#FFA242]"
           >
             Ir a iniciar sesión
           </Link>
@@ -158,73 +197,90 @@ export const RegisterPage: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
-      <div className="mb-6">
-        <SupabaseSetupNotice />
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm">
+      <div className="rounded-2xl border border-[#244B73] bg-[#102C49] p-6 sm:p-8 shadow-sm">
         <div className="flex items-center gap-2.5 mb-2">
-          <UserPlus className="h-5 w-5 text-[#F28C28]" />
-          <h1 className="font-display text-2xl font-bold text-[#102C49]">Crear cuenta en PoliCircular</h1>
+          <UserPlus className="h-5 w-5 text-[#FFA94D]" />
+          <h1 className="font-display text-2xl font-bold text-white">Crear cuenta en PoliCircular</h1>
         </div>
-        <p className="text-sm text-slate-600 mb-6">
+        <p className="text-sm text-slate-200 mb-6">
           Tu teléfono, correo y domicilio exacto nunca se muestran públicamente. La plataforma funciona sin dinero ni compraventa.
         </p>
+
+        <button
+          type="button"
+          onClick={handleGoogleSignUp}
+          disabled={googleBusy || !isFirebaseConfigured}
+          className="w-full mb-5 rounded-xl border border-[#3B648F] bg-white py-2.5 px-4 text-sm font-semibold text-[#102C49] hover:bg-slate-100 transition-colors flex items-center justify-center gap-2.5 min-h-[44px] disabled:opacity-50"
+        >
+          <span className="h-5 w-5 rounded-full bg-[#102C49] text-white text-xs font-bold flex items-center justify-center">
+            G
+          </span>
+          <span>{googleBusy ? 'Conectando con Google...' : 'Registrarse rápido con Google'}</span>
+        </button>
+
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-[#244B73]" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-[#102C49] px-3 text-slate-300">o completa el registro con correo</span>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Nombre completo</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Nombre completo</label>
               <input
                 type="text"
                 {...register('fullName')}
                 placeholder="Ej. Camila Soto"
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
               />
-              {errors.fullName && <p className="mt-1 text-xs text-red-600">{errors.fullName.message}</p>}
+              {errors.fullName && <p className="mt-1 text-xs text-red-300">{errors.fullName.message}</p>}
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Nombre de usuario</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Nombre de usuario</label>
               <input
                 type="text"
                 {...register('username')}
                 placeholder="camila_castro"
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
               />
-              {errors.username && <p className="mt-1 text-xs text-red-600">{errors.username.message}</p>}
+              {errors.username && <p className="mt-1 text-xs text-red-300">{errors.username.message}</p>}
             </div>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Correo electrónico</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Correo electrónico</label>
               <input
                 type="email"
                 {...register('email')}
                 placeholder="nombre@correo.cl"
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
               />
-              {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>}
+              {errors.email && <p className="mt-1 text-xs text-red-300">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Contraseña (mín. 8 caracteres)</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Contraseña (mín. 8 caracteres)</label>
               <input
                 type="password"
                 {...register('password')}
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
               />
-              {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>}
+              {errors.password && <p className="mt-1 text-xs text-red-300">{errors.password.message}</p>}
             </div>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Comuna</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Comuna</label>
               <select
                 {...register('communeId')}
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none bg-white"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
               >
                 <option value="">Selecciona una comuna</option>
                 {communes.map((c) => (
@@ -233,14 +289,14 @@ export const RegisterPage: React.FC = () => {
                   </option>
                 ))}
               </select>
-              {errors.communeId && <p className="mt-1 text-xs text-red-600">{errors.communeId.message}</p>}
+              {errors.communeId && <p className="mt-1 text-xs text-red-300">{errors.communeId.message}</p>}
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Sector aproximado</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Sector aproximado</label>
               <select
                 {...register('sectorId')}
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none bg-white"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
               >
                 <option value="">Opcional / Seleccionar sector</option>
                 {sectors.map((s) => (
@@ -253,10 +309,10 @@ export const RegisterPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Tipo de cuenta</label>
+            <label className="block text-xs font-semibold text-slate-200 mb-1.5">Tipo de cuenta</label>
             <select
               {...register('accountType')}
-              className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-[#102C49] focus:outline-none bg-white"
+              className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none"
             >
               <option value="individual">Individual / Familia</option>
               <option value="organization">Organización comunitaria</option>
@@ -265,102 +321,102 @@ export const RegisterPage: React.FC = () => {
           </div>
 
           {accountType !== 'individual' && (
-            <div className="rounded-xl bg-[#F4F6F8] p-4 space-y-4 border border-slate-200">
-              <p className="text-xs font-semibold text-[#102C49]">
+            <div className="rounded-xl bg-[#0B1E33] p-4 space-y-4 border border-[#244B73]">
+              <p className="text-xs font-semibold text-[#FFA94D]">
                 Información institucional (los datos de contacto permanecen privados)
               </p>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1">
                     Nombre institucional
                   </label>
                   <input
                     type="text"
                     {...register('institutionName')}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white placeholder:text-slate-400 px-3 py-2 text-sm"
                     placeholder="Liceo / Junta de Vecinos..."
                   />
                   {errors.institutionName && (
-                    <p className="mt-1 text-xs text-red-600">{errors.institutionName.message}</p>
+                    <p className="mt-1 text-xs text-red-300">{errors.institutionName.message}</p>
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1">
                     Persona adulta responsable
                   </label>
                   <input
                     type="text"
                     {...register('responsiblePerson')}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white px-3 py-2 text-sm"
                   />
                   {errors.responsiblePerson && (
-                    <p className="mt-1 text-xs text-red-600">{errors.responsiblePerson.message}</p>
+                    <p className="mt-1 text-xs text-red-300">{errors.responsiblePerson.message}</p>
                   )}
                 </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1">
                     Teléfono de contacto privado
                   </label>
                   <input
                     type="tel"
                     {...register('privatePhone')}
                     placeholder="+56 9 ..."
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white placeholder:text-slate-400 px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                  <label className="block text-xs font-semibold text-slate-200 mb-1">
                     Identificación institucional (RBD / PJ)
                   </label>
                   <input
                     type="text"
                     {...register('institutionalCode')}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white px-3 py-2 text-sm"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                <label className="block text-xs font-semibold text-slate-200 mb-1">
                   Descripción institucional
                 </label>
                 <textarea
                   rows={2}
                   {...register('institutionDescription')}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white px-3 py-2 text-sm"
                 />
               </div>
             </div>
           )}
 
           {/* Protección de menores */}
-          <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-white">
+          <div className="rounded-xl border border-[#244B73] p-4 space-y-3 bg-[#0B1E33]">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 {...register('isMinorSupervised')}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-[#102C49]"
+                className="mt-1 h-4 w-4 rounded border-[#2D557F] accent-[#F28C28]"
               />
-              <span className="text-xs text-slate-700 leading-relaxed">
-                <strong>Cuenta escolar o supervisada de menor de edad:</strong> declaro contar con autorización de un adulto responsable o establecimiento educacional. La comunicación privada irrestricta entre adultos y menores está restringida.
+              <span className="text-xs text-slate-200 leading-relaxed">
+                <strong className="text-white">Cuenta escolar o supervisada de menor de edad:</strong> declaro contar con autorización de un adulto responsable o establecimiento educacional. La comunicación privada irrestricta entre adultos y menores está restringida.
               </span>
             </label>
 
             {isMinorSupervised && (
               <div className="pl-7 space-y-2">
-                <div className="flex items-center gap-2 text-xs text-[#102C49] font-medium">
-                  <ShieldAlert className="h-4 w-4 text-[#F28C28]" />
+                <div className="flex items-center gap-2 text-xs text-[#FFA94D] font-medium">
+                  <ShieldAlert className="h-4 w-4" />
                   <span>Registro de supervisión obligatoria</span>
                 </div>
                 <input
                   type="text"
                   {...register('guardianAuthorizationNote')}
                   placeholder="Nombre del apoderado/docente responsable y curso o establecimiento"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white placeholder:text-slate-400 px-3 py-2 text-sm"
                 />
                 {errors.guardianAuthorizationNote && (
-                  <p className="text-xs text-red-600">{errors.guardianAuthorizationNote.message}</p>
+                  <p className="text-xs text-red-300">{errors.guardianAuthorizationNote.message}</p>
                 )}
               </div>
             )}
@@ -371,39 +427,39 @@ export const RegisterPage: React.FC = () => {
               <input
                 type="checkbox"
                 {...register('acceptTerms')}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-[#102C49]"
+                className="mt-1 h-4 w-4 rounded border-[#2D557F] accent-[#F28C28]"
               />
-              <span className="text-xs text-slate-700">
+              <span className="text-xs text-slate-200">
                 Acepto los{' '}
-                <Link to="/reglas-comunitarias" className="text-[#F28C28] font-semibold hover:underline">
+                <Link to="/reglas-comunitarias" className="text-[#FFA94D] font-semibold hover:underline">
                   Términos de uso, Política de privacidad y Reglas comunitarias
                 </Link>{' '}
                 (sin compraventa ni dinero).
               </span>
             </label>
             {errors.acceptTerms && (
-              <p className="mt-1 text-xs text-red-600">{errors.acceptTerms.message}</p>
+              <p className="mt-1 text-xs text-red-300">{errors.acceptTerms.message}</p>
             )}
           </div>
 
           {serverError && (
-            <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-800">
+            <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
               {serverError}
             </div>
           )}
 
           <button
             type="submit"
-            disabled={isSubmitting || !isSupabaseConfigured}
-            className="w-full rounded-xl bg-[#F28C28] py-3 text-sm font-semibold text-white hover:bg-[#D97719] transition-colors disabled:opacity-50 min-h-[44px]"
+            disabled={isSubmitting || !isFirebaseConfigured}
+            className="w-full rounded-xl bg-[#F28C28] py-3 text-sm font-bold text-[#0B1E33] hover:bg-[#FFA242] transition-colors disabled:opacity-50 min-h-[44px]"
           >
             {isSubmitting ? 'Registrando cuenta...' : 'Crear cuenta en PoliCircular'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-slate-600">
+        <p className="mt-6 text-center text-xs text-slate-300">
           ¿Ya tienes cuenta?{' '}
-          <Link to="/iniciar-sesion" className="font-semibold text-[#102C49] hover:underline">
+          <Link to="/iniciar-sesion" className="font-semibold text-[#FFA94D] hover:underline">
             Iniciar sesión
           </Link>
         </p>

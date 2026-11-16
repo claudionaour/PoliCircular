@@ -83,12 +83,12 @@ export const OsmSectorMap: React.FC<OsmSectorMapProps> = ({
   }, [centerLat, centerLng, label, interactive, onSelectPoint]);
 
   return (
-    <div className="rounded-xl overflow-hidden border border-slate-200 bg-[#F4F6F8]">
+    <div className="rounded-xl overflow-hidden border border-[#244B73] bg-[#0B1E33]">
       <div ref={containerRef} className={`w-full ${heightClass} z-0`} />
-      <div className="px-3 py-2 text-xs text-slate-600 bg-white border-t border-slate-200 flex items-center justify-between gap-2">
+      <div className="px-3 py-2 text-xs text-slate-200 bg-[#102C49] border-t border-[#244B73] flex items-center justify-between gap-2">
         <span>{label}</span>
         {interactive && (
-          <span className="text-[#102C49] font-medium">
+          <span className="text-[#FFA94D] font-medium">
             Toca el mapa para sugerir punto de encuentro público
           </span>
         )}

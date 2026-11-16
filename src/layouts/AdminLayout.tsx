@@ -34,12 +34,12 @@ export const AdminLayout: React.FC = () => {
       : 'moderator';
 
   return (
-    <div className="min-h-screen bg-[#F4F6F8] text-[#102C49] flex flex-col lg:flex-row">
-      <aside className="w-full lg:w-64 bg-[#102C49] text-white shrink-0 flex flex-col">
-        <div className="p-5 border-b border-white/10 flex items-center justify-between lg:block">
+    <div className="min-h-screen bg-[#0B1E33] text-white flex flex-col lg:flex-row">
+      <aside className="w-full lg:w-64 bg-[#102C49] text-white border-b lg:border-b-0 lg:border-r border-[#244B73] shrink-0 flex flex-col">
+        <div className="p-5 border-b border-[#244B73] flex items-center justify-between lg:block">
           <BrandLogo size="sm" lightText />
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300">
-            <Shield className="h-3.5 w-3.5 text-[#F28C28]" />
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-200">
+            <Shield className="h-3.5 w-3.5 text-[#FFA94D]" />
             <span>{ROLE_LABELS[primaryRole]}</span>
           </div>
         </div>
@@ -55,8 +55,8 @@ export const AdminLayout: React.FC = () => {
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
                     isActive
-                      ? 'bg-[#F28C28] text-white'
-                      : 'text-slate-200 hover:bg-white/10 hover:text-white'
+                      ? 'bg-[#F28C28] text-[#0B1E33] font-bold'
+                      : 'text-slate-200 hover:bg-[#163B61] hover:text-white'
                   }`
                 }
               >
@@ -67,10 +67,10 @@ export const AdminLayout: React.FC = () => {
           })}
         </nav>
 
-        <div className="mt-auto p-4 border-t border-white/10 hidden lg:block">
+        <div className="mt-auto p-4 border-t border-[#244B73] hidden lg:block">
           <Link
             to="/inicio"
-            className="flex items-center gap-2 text-xs font-medium text-slate-300 hover:text-white"
+            className="flex items-center gap-2 text-xs font-medium text-slate-200 hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Volver a la plataforma comunitaria</span>

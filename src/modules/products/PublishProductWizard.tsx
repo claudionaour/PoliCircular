@@ -195,7 +195,7 @@ export const PublishProductWizard: React.FC = () => {
     setError(null);
     try {
       await createProductWithImages({
-        ownerId: user.id,
+        ownerId: user.uid,
         title,
         description,
         categoryId,
@@ -211,7 +211,7 @@ export const PublishProductWizard: React.FC = () => {
       navigate('/mis-publicaciones', { replace: true });
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'No fue posible guardar la publicación en Supabase.'
+        err instanceof Error ? err.message : 'No fue posible guardar la publicación en Firebase.'
       );
     } finally {
       setSubmitting(false);
@@ -225,8 +225,8 @@ export const PublishProductWizard: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">Publicar producto</h1>
-        <p className="text-sm text-slate-600">
+        <h1 className="font-display text-2xl font-bold text-white">Publicar producto</h1>
+        <p className="text-sm text-slate-200">
           Toda publicación queda en revisión obligatoria antes de mostrarse en Explorar. Sin precios ni dinero.
         </p>
       </div>
@@ -238,10 +238,10 @@ export const PublishProductWizard: React.FC = () => {
             key={label}
             className={`rounded-xl px-2 py-2.5 text-center text-xs font-semibold border transition-colors ${
               idx === step
-                ? 'bg-[#102C49] text-white border-[#102C49]'
+                ? 'bg-[#F28C28] text-[#0B1E33] border-[#F28C28] font-bold'
                 : idx < step
-                  ? 'bg-[#E6F4EA] text-[#1E7E48] border-[#1E7E48]/30'
-                  : 'bg-white text-slate-500 border-slate-200'
+                  ? 'bg-[#143D29] text-[#6EE7B7] border-[#34D399]/35'
+                  : 'bg-[#102C49] text-slate-300 border-[#244B73]'
             }`}
           >
             <span className="hidden sm:inline">{idx + 1}. {label}</span>
@@ -250,22 +250,22 @@ export const PublishProductWizard: React.FC = () => {
         ))}
       </ol>
 
-      <div className="rounded-2xl bg-white border border-slate-200 p-6 space-y-6">
+      <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-6">
         {step === 0 && (
           <div className="space-y-4">
-            <h2 className="font-display text-lg font-bold text-[#102C49]">
+            <h2 className="font-display text-lg font-bold text-white">
               Paso 1: Fotografías (máximo 5)
             </h2>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-200">
               Formatos aceptados: JPG, PNG o WebP. Las imágenes se optimizan automáticamente antes de subir.
             </p>
 
-            <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-[#F4F6F8] p-8 cursor-pointer hover:border-[#F28C28] transition-colors">
-              <ImagePlus className="h-8 w-8 text-[#102C49] mb-2" />
-              <span className="text-sm font-semibold text-[#102C49]">
+            <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#3B648F] bg-[#0B1E33] p-8 cursor-pointer hover:border-[#FFA94D] transition-colors">
+              <ImagePlus className="h-8 w-8 text-[#FFA94D] mb-2" />
+              <span className="text-sm font-semibold text-white">
                 Seleccionar fotografías ({photos.length}/5)
               </span>
-              <span className="text-xs text-slate-500 mt-1">Máximo 10 MB por archivo original</span>
+              <span className="text-xs text-slate-300 mt-1">Máximo 10 MB por archivo original</span>
               <input
                 type="file"
                 multiple
@@ -282,7 +282,7 @@ export const PublishProductWizard: React.FC = () => {
                   <div
                     key={photo.id}
                     className={`relative rounded-xl overflow-hidden border ${
-                      photo.isPrimary ? 'border-[#F28C28] ring-2 ring-[#F28C28]/30' : 'border-slate-200'
+                      photo.isPrimary ? 'border-[#FFA94D] ring-2 ring-[#FFA94D]/40' : 'border-[#244B73]'
                     }`}
                   >
                     <img
@@ -290,21 +290,21 @@ export const PublishProductWizard: React.FC = () => {
                       alt="Vista previa de producto"
                       className="w-full h-36 object-cover"
                     />
-                    <div className="p-2 bg-white flex items-center justify-between gap-1 text-xs">
+                    <div className="p-2 bg-[#0B1E33] flex items-center justify-between gap-1 text-xs">
                       <button
                         type="button"
                         onClick={() => setPrimaryPhoto(photo.id)}
                         className={`inline-flex items-center gap-1 font-semibold ${
-                          photo.isPrimary ? 'text-[#F28C28]' : 'text-slate-600 hover:text-[#102C49]'
+                          photo.isPrimary ? 'text-[#FFA94D]' : 'text-slate-200 hover:text-white'
                         }`}
                       >
-                        <Star className={`h-3.5 w-3.5 ${photo.isPrimary ? 'fill-[#F28C28]' : ''}`} />
+                        <Star className={`h-3.5 w-3.5 ${photo.isPrimary ? 'fill-[#FFA94D]' : ''}`} />
                         <span>{photo.isPrimary ? 'Principal' : 'Hacer principal'}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => removePhoto(photo.id)}
-                        className="p-1 text-red-600 hover:bg-red-50 rounded"
+                        className="p-1 text-red-300 hover:bg-red-950/70 rounded"
                         aria-label="Eliminar fotografía"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -319,37 +319,37 @@ export const PublishProductWizard: React.FC = () => {
 
         {step === 1 && (
           <div className="space-y-4">
-            <h2 className="font-display text-lg font-bold text-[#102C49]">Paso 2: Información del producto</h2>
+            <h2 className="font-display text-lg font-bold text-white">Paso 2: Información del producto</h2>
 
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Nombre del producto</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Nombre del producto</label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ej. Silla de madera nativa o Mochila escolar"
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Descripción</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Descripción</label>
               <textarea
                 rows={4}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Detalla características, medidas aproximadas, detalles de uso o qué reparación requiere."
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm"
               />
             </div>
 
             <div className="grid sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Categoría</label>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Categoría</label>
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2.5 text-sm"
                 >
                   {categories.map((cat) => (
                     <option key={cat.id} value={cat.id}>
@@ -360,11 +360,11 @@ export const PublishProductWizard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Estado</label>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Estado</label>
                 <select
                   value={condition}
                   onChange={(e) => setCondition(e.target.value as ProductCondition)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2.5 text-sm"
                 >
                   {Object.entries(CONDITION_LABELS).map(([val, label]) => (
                     <option key={val} value={val}>
@@ -375,14 +375,14 @@ export const PublishProductWizard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Cantidad disponible</label>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Cantidad disponible</label>
                 <input
                   type="number"
                   min={1}
                   max={500}
                   value={totalQuantity}
                   onChange={(e) => setTotalQuantity(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono tabular-nums"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3.5 py-2.5 text-sm font-mono tabular-nums"
                 />
               </div>
             </div>
@@ -391,8 +391,8 @@ export const PublishProductWizard: React.FC = () => {
 
         {step === 2 && (
           <div className="space-y-4">
-            <h2 className="font-display text-lg font-bold text-[#102C49]">Paso 3: Modalidad sin dinero</h2>
-            <p className="text-xs text-slate-600">
+            <h2 className="font-display text-lg font-bold text-white">Paso 3: Modalidad sin dinero</h2>
+            <p className="text-xs text-slate-200">
               PoliCircular no permite precios ni pagos. Elige cómo quieres dar una segunda oportunidad a este producto:
             </p>
 
@@ -402,12 +402,12 @@ export const PublishProductWizard: React.FC = () => {
                 onClick={() => setModality('gift')}
                 className={`p-5 rounded-2xl border text-left transition-colors ${
                   modality === 'gift'
-                    ? 'border-[#1E7E48] bg-[#E6F4EA]'
-                    : 'border-slate-200 bg-white hover:bg-[#F4F6F8]'
+                    ? 'border-[#34D399] bg-[#143D29]'
+                    : 'border-[#244B73] bg-[#0B1E33] hover:bg-[#163B61]'
                 }`}
               >
-                <div className="font-display font-bold text-base text-[#102C49]">REGALO GRATUITO</div>
-                <p className="mt-1 text-xs text-slate-600">
+                <div className="font-display font-bold text-base text-white">REGALO GRATUITO</div>
+                <p className="mt-1 text-xs text-slate-200">
                   Entregas el producto gratuitamente a quien lo necesite y selecciones en tus solicitudes.
                 </p>
               </button>
@@ -417,12 +417,12 @@ export const PublishProductWizard: React.FC = () => {
                 onClick={() => setModality('exchange')}
                 className={`p-5 rounded-2xl border text-left transition-colors ${
                   modality === 'exchange'
-                    ? 'border-[#F28C28] bg-[#FFF8F1]'
-                    : 'border-slate-200 bg-white hover:bg-[#F4F6F8]'
+                    ? 'border-[#FFA94D] bg-[#2A2015]'
+                    : 'border-[#244B73] bg-[#0B1E33] hover:bg-[#163B61]'
                 }`}
               >
-                <div className="font-display font-bold text-base text-[#102C49]">INTERCAMBIO</div>
-                <p className="mt-1 text-xs text-slate-600">
+                <div className="font-display font-bold text-base text-white">INTERCAMBIO</div>
+                <p className="mt-1 text-xs text-slate-200">
                   Acuerdas intercambiar este producto por otro objeto aprobado sin utilizar dinero.
                 </p>
               </button>
@@ -430,7 +430,7 @@ export const PublishProductWizard: React.FC = () => {
 
             {modality === 'exchange' && (
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">
                   ¿Qué productos te gustaría recibir a cambio?
                 </label>
                 <textarea
@@ -438,7 +438,7 @@ export const PublishProductWizard: React.FC = () => {
                   value={desiredExchangeItems}
                   onChange={(e) => setDesiredExchangeItems(e.target.value)}
                   placeholder="Ej. Libros juveniles, herramientas manuales, maceteros o lanas."
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm"
                 />
               </div>
             )}
@@ -447,31 +447,31 @@ export const PublishProductWizard: React.FC = () => {
 
         {step === 3 && (
           <div className="space-y-4">
-            <h2 className="font-display text-lg font-bold text-[#102C49]">Paso 4: Ubicación aproximada</h2>
-            <p className="text-xs text-slate-600">
+            <h2 className="font-display text-lg font-bold text-white">Paso 4: Ubicación aproximada</h2>
+            <p className="text-xs text-slate-200">
               Tu domicilio particular nunca se muestra públicamente. Solo se indica comuna, sector y método de entrega.
             </p>
 
             <div className="grid sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Región</label>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Región</label>
                 <input
                   type="text"
                   value={region}
                   readOnly
-                  className="w-full rounded-xl border border-slate-200 bg-[#F4F6F8] px-3.5 py-2.5 text-sm text-slate-600"
+                  className="w-full rounded-xl border border-[#244B73] bg-[#081626] px-3.5 py-2.5 text-sm text-slate-300"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Comuna</label>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Comuna</label>
                 <select
                   value={communeId}
                   onChange={(e) => {
                     setCommuneId(e.target.value);
                     setSectorId('');
                   }}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2.5 text-sm"
                 >
                   {communes.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -482,11 +482,11 @@ export const PublishProductWizard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Sector aproximado</label>
+                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Sector aproximado</label>
                 <select
                   value={sectorId}
                   onChange={(e) => setSectorId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
+                  className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2.5 text-sm"
                 >
                   <option value="">Comuna general</option>
                   {sectors.map((s) => (
@@ -499,11 +499,11 @@ export const PublishProductWizard: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#102C49] mb-1.5">Método de entrega</label>
+              <label className="block text-xs font-semibold text-slate-200 mb-1.5">Método de entrega</label>
               <select
                 value={deliveryMethod}
                 onChange={(e) => setDeliveryMethod(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
+                className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2.5 text-sm"
               >
                 <option value="Punto de encuentro comunitario">Punto de encuentro comunitario</option>
                 <option value="Establecimiento educacional o sede">Establecimiento educacional o sede</option>
@@ -522,10 +522,10 @@ export const PublishProductWizard: React.FC = () => {
 
         {step === 4 && (
           <div className="space-y-4">
-            <h2 className="font-display text-lg font-bold text-[#102C49]">
+            <h2 className="font-display text-lg font-bold text-white">
               Paso 5: Vista previa y confirmación
             </h2>
-            <div className="rounded-2xl border border-slate-200 overflow-hidden bg-[#F4F6F8]">
+            <div className="rounded-2xl border border-[#244B73] overflow-hidden bg-[#081626]">
               {photos[0] && (
                 <img
                   src={(photos.find((p) => p.isPrimary) || photos[0]).previewUrl}
@@ -533,9 +533,9 @@ export const PublishProductWizard: React.FC = () => {
                   className="w-full h-56 object-cover"
                 />
               )}
-              <div className="p-5 bg-white space-y-2">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <span className="font-semibold text-[#F28C28]">{MODALITY_LABELS[modality]}</span>
+              <div className="p-5 bg-[#0B1E33] space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                  <span className="font-semibold text-[#FFA94D]">{MODALITY_LABELS[modality]}</span>
                   <span aria-hidden="true">·</span>
                   <span>{selectedCategory?.name}</span>
                   <span aria-hidden="true">·</span>
@@ -543,33 +543,33 @@ export const PublishProductWizard: React.FC = () => {
                   <span aria-hidden="true">·</span>
                   <span>{totalQuantity} unidad(es)</span>
                 </div>
-                <h3 className="font-display text-xl font-bold text-[#102C49]">{title}</h3>
-                <p className="text-sm text-slate-600">{description}</p>
+                <h3 className="font-display text-xl font-bold text-white">{title}</h3>
+                <p className="text-sm text-slate-200">{description}</p>
                 {modality === 'exchange' && (
-                  <p className="text-xs text-[#102C49] pt-1">
+                  <p className="text-xs text-[#FDE68A] pt-1">
                     <strong>Busca intercambiar por:</strong> {desiredExchangeItems}
                   </p>
                 )}
-                <p className="text-xs text-slate-500 pt-2">
+                <p className="text-xs text-slate-300 pt-2">
                   Ubicación referencial: {selectedCommune?.name}
                   {selectedSector ? ` · ${selectedSector.name}` : ''} · {deliveryMethod}
                 </p>
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#FFF8F1] border border-[#F28C28]/40 p-3.5 text-xs text-[#102C49]">
+            <div className="rounded-xl bg-[#2A2015] border border-[#F28C28]/40 p-3.5 text-xs text-[#FDE68A]">
               Al confirmar, la publicación quedará en estado <strong>Pendiente de moderación</strong> y aparecerá en Explorar una vez aprobada por el equipo moderador.
             </div>
           </div>
         )}
 
         {error && (
-          <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+          <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
             {error}
           </div>
         )}
 
-        <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+        <div className="flex items-center justify-between pt-2 border-t border-[#244B73]">
           <button
             type="button"
             onClick={() => {
@@ -577,7 +577,7 @@ export const PublishProductWizard: React.FC = () => {
               setStep((s) => Math.max(0, s - 1));
             }}
             disabled={step === 0 || submitting}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-[#F4F6F8] disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-sm font-semibold text-white hover:bg-[#163B61] disabled:opacity-40"
           >
             <ChevronLeft className="h-4 w-4" />
             <span>Anterior</span>
@@ -587,7 +587,7 @@ export const PublishProductWizard: React.FC = () => {
             <button
               type="button"
               onClick={nextStep}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#102C49] text-white text-sm font-semibold hover:bg-[#0B2036]"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-white text-[#102C49] text-sm font-semibold hover:bg-slate-100"
             >
               <span>Siguiente</span>
               <ChevronRight className="h-4 w-4" />
@@ -597,7 +597,7 @@ export const PublishProductWizard: React.FC = () => {
               type="button"
               onClick={handlePublish}
               disabled={submitting}
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#F28C28] text-white text-sm font-semibold hover:bg-[#D97719] disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#F28C28] text-[#0B1E33] text-sm font-bold hover:bg-[#FFA242] disabled:opacity-50"
             >
               {submitting ? (
                 <>

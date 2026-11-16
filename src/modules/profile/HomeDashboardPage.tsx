@@ -79,7 +79,7 @@ export const HomeDashboardPage: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
-    getTreeProgress(user.id)
+    getTreeProgress(user.uid)
       .then(setTree)
       .catch(() => setTree(null));
   }, [user]);
@@ -88,12 +88,12 @@ export const HomeDashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl bg-[#102C49] text-white p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <section className="rounded-2xl bg-[#102C49] border border-[#244B73] text-white p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div className="space-y-2">
-          <p className="text-xs font-medium text-[#F28C28]">
+          <p className="text-xs font-semibold text-[#FFA94D]">
             {profile?.communes?.name ? `${profile.communes.name} · ${profile.communes.region}` : 'Comunidad PoliCircular'}
           </p>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-white">
             Hola, {profile?.full_name || 'Participante'}
           </h1>
           <p className="text-sm text-slate-200 max-w-xl">
@@ -105,14 +105,14 @@ export const HomeDashboardPage: React.FC = () => {
         <div className="flex flex-wrap gap-3 shrink-0">
           <Link
             to="/publicar"
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#F28C28] text-white text-sm font-semibold hover:bg-[#D97719] transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#F28C28] text-[#0B1E33] text-sm font-bold hover:bg-[#FFA242] transition-colors whitespace-nowrap"
           >
             <PlusCircle className="h-4 w-4" />
             <span>Publicar producto</span>
           </Link>
           <Link
             to="/explorar"
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white text-[#102C49] text-sm font-semibold hover:bg-slate-100 transition-colors whitespace-nowrap"
           >
             <Compass className="h-4 w-4" />
             <span>Explorar catálogo</span>
@@ -121,7 +121,7 @@ export const HomeDashboardPage: React.FC = () => {
       </section>
 
       <section>
-        <h2 className="font-display text-lg font-bold text-[#102C49] mb-4">Accesos rápidos</h2>
+        <h2 className="font-display text-lg font-bold text-white mb-4">Accesos rápidos</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {QUICK_ACCESS.map((item) => {
             const Icon = item.icon;
@@ -129,14 +129,14 @@ export const HomeDashboardPage: React.FC = () => {
               <Link
                 key={item.to}
                 to={item.to}
-                className="group rounded-2xl bg-white border border-slate-200 p-5 hover:border-[#102C49]/40 transition-colors flex items-start gap-4"
+                className="group rounded-2xl bg-[#102C49] border border-[#244B73] p-5 hover:border-[#FFA94D]/60 transition-colors flex items-start gap-4"
               >
-                <div className="h-11 w-11 rounded-xl bg-[#F4F6F8] flex items-center justify-center text-[#102C49] group-hover:bg-[#102C49] group-hover:text-white transition-colors shrink-0">
+                <div className="h-11 w-11 rounded-xl bg-[#0B1E33] border border-[#244B73] flex items-center justify-center text-[#FFA94D] group-hover:bg-[#F28C28] group-hover:text-[#0B1E33] transition-colors shrink-0">
                   <Icon className="h-5 w-5" />
                 </div>
                 <div className="space-y-1">
-                  <h3 className="font-display font-bold text-sm text-[#102C49]">{item.title}</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">{item.desc}</p>
+                  <h3 className="font-display font-bold text-sm text-white">{item.title}</h3>
+                  <p className="text-xs text-slate-200 leading-relaxed">{item.desc}</p>
                 </div>
               </Link>
             );

@@ -13,8 +13,8 @@ const TreeStageIllustration: React.FC<{ stage: TreeStage }> = ({ stage }) => {
   return (
     <svg viewBox="0 0 280 240" className="w-full max-w-[260px] h-auto mx-auto" aria-hidden="true">
       {/* Tierra / base */}
-      <ellipse cx="140" cy="212" rx="95" ry="16" fill="#E6F4EA" />
-      <path d="M55 210 Q140 194 225 210" stroke="#1E7E48" strokeWidth="3" fill="none" />
+      <ellipse cx="140" cy="212" rx="95" ry="16" fill="#143D29" />
+      <path d="M55 210 Q140 194 225 210" stroke="#34D399" strokeWidth="3" fill="none" />
 
       {stage === 'semilla' && (
         <g>
@@ -92,9 +92,9 @@ export const CircularTreePage: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     Promise.all([
-      getTreeProgress(user.id),
+      getTreeProgress(user.uid),
       listAllAchievements(),
-      listUserAchievements(user.id),
+      listUserAchievements(user.uid),
     ])
       .then(([prog, allAch, userAch]) => {
         setProgress(prog);
@@ -111,17 +111,17 @@ export const CircularTreePage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">Mi Árbol Circular</h1>
-        <p className="text-sm text-slate-600">
+        <h1 className="font-display text-2xl font-bold text-white">Mi Árbol Circular</h1>
+        <p className="text-sm text-slate-300">
           Tu árbol crece únicamente con operaciones reales confirmadas por ambas partes. Las publicaciones pendientes o activas no suman operaciones.
         </p>
       </div>
 
       <div className="grid lg:grid-cols-12 gap-6 items-stretch">
-        <section className="lg:col-span-5 rounded-2xl bg-white border border-slate-200 p-6 flex flex-col justify-between text-center">
+        <section className="lg:col-span-5 rounded-2xl bg-[#102C49] border border-[#244B73] p-6 flex flex-col justify-between text-center">
           <div>
-            <p className="text-xs font-semibold text-[#1E7E48]">Etapa actual</p>
-            <h2 className="font-display text-2xl font-bold text-[#102C49] mt-1">{stageInfo.label}</h2>
+            <p className="text-xs font-semibold text-[#6EE7B7]">Etapa actual</p>
+            <h2 className="font-display text-2xl font-bold text-white mt-1">{stageInfo.label}</h2>
           </div>
 
           <div className="my-4">
@@ -129,37 +129,37 @@ export const CircularTreePage: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            <p className="text-sm text-slate-600">{stageInfo.description}</p>
+            <p className="text-sm text-slate-200">{stageInfo.description}</p>
             {stageInfo.nextOps !== null && (
-              <p className="text-xs text-slate-500 tabular-nums">
-                Faltan <strong>{Math.max(0, stageInfo.nextOps - ops)}</strong> operaciones confirmadas para la siguiente etapa.
+              <p className="text-xs text-slate-300 tabular-nums">
+                Faltan <strong className="text-white">{Math.max(0, stageInfo.nextOps - ops)}</strong> operaciones confirmadas para la siguiente etapa.
               </p>
             )}
           </div>
         </section>
 
-        <section className="lg:col-span-7 rounded-2xl bg-white border border-slate-200 p-6 space-y-6">
+        <section className="lg:col-span-7 rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-6">
           <div className="grid grid-cols-3 gap-4">
-            <div className="rounded-xl bg-[#F4F6F8] p-4">
-              <span className="text-xs text-slate-500 block">Operaciones</span>
-              <span className="font-mono text-2xl font-bold text-[#102C49] tabular-nums">{ops}</span>
+            <div className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4">
+              <span className="text-xs text-slate-300 block">Operaciones</span>
+              <span className="font-mono text-2xl font-bold text-white tabular-nums">{ops}</span>
             </div>
-            <div className="rounded-xl bg-[#F4F6F8] p-4">
-              <span className="text-xs text-slate-500 block">Regalos</span>
-              <span className="font-mono text-2xl font-bold text-[#1E7E48] tabular-nums">
+            <div className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4">
+              <span className="text-xs text-slate-300 block">Regalos</span>
+              <span className="font-mono text-2xl font-bold text-[#6EE7B7] tabular-nums">
                 {progress?.completed_gifts ?? 0}
               </span>
             </div>
-            <div className="rounded-xl bg-[#F4F6F8] p-4">
-              <span className="text-xs text-slate-500 block">Intercambios</span>
-              <span className="font-mono text-2xl font-bold text-[#F28C28] tabular-nums">
+            <div className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4">
+              <span className="text-xs text-slate-300 block">Intercambios</span>
+              <span className="font-mono text-2xl font-bold text-[#FFA94D] tabular-nums">
                 {progress?.completed_exchanges ?? 0}
               </span>
             </div>
           </div>
 
           <div>
-            <h3 className="font-display font-bold text-sm text-[#102C49] mb-3">
+            <h3 className="font-display font-bold text-sm text-white mb-3">
               Etapas de crecimiento
             </h3>
             <div className="space-y-2">
@@ -171,10 +171,10 @@ export const CircularTreePage: React.FC = () => {
                     key={s}
                     className={`flex items-center justify-between px-4 py-2.5 rounded-xl border text-xs ${
                       s === stage
-                        ? 'border-[#1E7E48] bg-[#E6F4EA] text-[#102C49] font-semibold'
+                        ? 'border-[#34D399]/50 bg-[#143D29] text-white font-semibold'
                         : reached
-                          ? 'border-slate-200 bg-white text-[#102C49]'
-                          : 'border-slate-100 bg-[#F4F6F8] text-slate-400'
+                          ? 'border-[#244B73] bg-[#0B1E33] text-slate-200'
+                          : 'border-[#1D3E63] bg-[#081626] text-slate-400'
                     }`}
                   >
                     <span>{info.label}</span>
@@ -190,11 +190,11 @@ export const CircularTreePage: React.FC = () => {
       </div>
 
       {/* Insignias */}
-      <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-        <h2 className="font-display text-lg font-bold text-[#102C49]">Insignias circulares</h2>
+      <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+        <h2 className="font-display text-lg font-bold text-white">Insignias circulares</h2>
         {allAchievements.length === 0 ? (
-          <p className="text-xs text-slate-500">
-            Conecta Supabase y ejecuta seed.sql para visualizar el catálogo oficial de insignias.
+          <p className="text-xs text-slate-300">
+            El catálogo oficial de insignias se sincronizará al inicializar la semilla territorial en Firestore.
           </p>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -204,24 +204,24 @@ export const CircularTreePage: React.FC = () => {
                 <div
                   key={ach.id}
                   className={`rounded-xl border p-4 flex items-start gap-3 ${
-                    unlocked ? 'border-[#1E7E48]/40 bg-[#E6F4EA]/40' : 'border-slate-200 bg-[#F4F6F8]/60 opacity-75'
+                    unlocked ? 'border-[#34D399]/40 bg-[#143D29]' : 'border-[#244B73] bg-[#0B1E33] opacity-80'
                   }`}
                 >
                   <div
                     className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${
-                      unlocked ? 'bg-[#1E7E48] text-white' : 'bg-slate-200 text-slate-500'
+                      unlocked ? 'bg-[#34D399] text-[#0B1E33]' : 'bg-[#1A3B5C] text-slate-300'
                     }`}
                   >
                     {unlocked ? <Award className="h-5 w-5" /> : <Lock className="h-4 w-4" />}
                   </div>
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="font-display font-bold text-sm text-[#102C49]">{ach.name}</h3>
-                      {unlocked && <CheckCircle2 className="h-3.5 w-3.5 text-[#1E7E48]" />}
+                      <h3 className="font-display font-bold text-sm text-white">{ach.name}</h3>
+                      {unlocked && <CheckCircle2 className="h-3.5 w-3.5 text-[#6EE7B7]" />}
                     </div>
-                    <p className="text-xs text-slate-600">{ach.description}</p>
+                    <p className="text-xs text-slate-200">{ach.description}</p>
                     {unlocked && (
-                      <p className="text-[11px] text-[#1E7E48] font-medium">
+                      <p className="text-[11px] text-[#6EE7B7] font-medium">
                         Desbloqueada el {formatChileDate(unlocked.unlocked_at)}
                       </p>
                     )}

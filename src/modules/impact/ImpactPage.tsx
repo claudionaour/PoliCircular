@@ -6,7 +6,6 @@ import {
 } from '../../services/treeImpactService';
 import { listActiveCommunes } from '../../services/territorialService';
 import { exportImpactCsv } from '../../utils/csvExport';
-import { SupabaseSetupNotice } from '../../components/SupabaseSetupNotice';
 import type { Commune, ImpactRecord } from '../../types/domain';
 
 export const ImpactPage: React.FC = () => {
@@ -74,14 +73,12 @@ export const ImpactPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-      <SupabaseSetupNotice />
-
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#102C49]">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-white">
             Impacto Circular
           </h1>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-300">
             Seguimiento transparente de reutilización comunitaria. Nunca mezclamos estimaciones con mediciones reales.
           </p>
         </div>
@@ -91,7 +88,7 @@ export const ImpactPage: React.FC = () => {
             value={selectedCommuneId}
             onChange={(e) => setSelectedCommuneId(e.target.value)}
             aria-label="Filtrar impacto por comuna"
-            className="rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#102C49]"
+            className="rounded-xl border border-[#2D557F] bg-[#0B1E33] px-3.5 py-2 text-xs font-semibold text-white focus:border-[#FFA94D] focus:outline-none"
           >
             <option value="">Todas las comunas</option>
             {communes.map((c) => (
@@ -104,7 +101,7 @@ export const ImpactPage: React.FC = () => {
           <button
             type="button"
             onClick={() => exportImpactCsv(records, selectedCommuneName)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#102C49] text-white text-xs font-semibold hover:bg-[#0B2036]"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
           >
             <Download className="h-4 w-4" />
             <span>Descargar informe CSV</span>
@@ -113,7 +110,7 @@ export const ImpactPage: React.FC = () => {
           <button
             type="button"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-[#102C49] hover:bg-[#F4F6F8]"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-xs font-semibold text-white hover:bg-[#163B61]"
           >
             <Printer className="h-4 w-4" />
             <span>Imprimir reporte</span>
@@ -123,33 +120,33 @@ export const ImpactPage: React.FC = () => {
 
       {/* KPI principales */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <span className="text-xs text-slate-500 block">Productos reutilizados</span>
-          <span className="font-mono text-2xl font-bold text-[#102C49] tabular-nums mt-1 block">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <span className="text-xs text-slate-300 block">Productos reutilizados</span>
+          <span className="font-mono text-2xl font-bold text-white tabular-nums mt-1 block">
             {stats.totalUnits}
           </span>
         </div>
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <span className="text-xs text-slate-500 block">Regalos completados</span>
-          <span className="font-mono text-2xl font-bold text-[#1E7E48] tabular-nums mt-1 block">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <span className="text-xs text-slate-300 block">Regalos completados</span>
+          <span className="font-mono text-2xl font-bold text-[#6EE7B7] tabular-nums mt-1 block">
             {stats.gifts}
           </span>
         </div>
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <span className="text-xs text-slate-500 block">Intercambios realizados</span>
-          <span className="font-mono text-2xl font-bold text-[#F28C28] tabular-nums mt-1 block">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <span className="text-xs text-slate-300 block">Intercambios realizados</span>
+          <span className="font-mono text-2xl font-bold text-[#FFA94D] tabular-nums mt-1 block">
             {stats.exchanges}
           </span>
         </div>
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <span className="text-xs text-slate-500 block">Usuarios participantes</span>
-          <span className="font-mono text-2xl font-bold text-[#102C49] tabular-nums mt-1 block">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <span className="text-xs text-slate-300 block">Usuarios participantes</span>
+          <span className="font-mono text-2xl font-bold text-white tabular-nums mt-1 block">
             {counts.participantsCount}
           </span>
         </div>
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <span className="text-xs text-slate-500 block">Organizaciones / Escuelas</span>
-          <span className="font-mono text-2xl font-bold text-[#102C49] tabular-nums mt-1 block">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <span className="text-xs text-slate-300 block">Organizaciones / Escuelas</span>
+          <span className="font-mono text-2xl font-bold text-white tabular-nums mt-1 block">
             {counts.organizationsCount}
           </span>
         </div>
@@ -157,32 +154,32 @@ export const ImpactPage: React.FC = () => {
 
       {/* Separación estricta: Peso Medido vs Peso Estimado */}
       <div className="grid md:grid-cols-2 gap-6">
-        <section className="rounded-2xl bg-white border border-[#1E7E48]/40 p-6 space-y-2">
+        <section className="rounded-2xl bg-[#102C49] border border-[#34D399]/40 p-6 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#1E7E48] bg-[#E6F4EA] px-2.5 py-1 rounded-lg">
+            <span className="text-xs font-bold text-[#6EE7B7] bg-[#143D29] border border-[#34D399]/35 px-2.5 py-1 rounded-lg">
               PESO MEDIDO (pesaje real)
             </span>
-            <Scale className="h-5 w-5 text-[#1E7E48]" />
+            <Scale className="h-5 w-5 text-[#6EE7B7]" />
           </div>
-          <p className="font-mono text-3xl font-bold text-[#102C49] tabular-nums pt-2">
+          <p className="font-mono text-3xl font-bold text-white tabular-nums pt-2">
             {stats.measuredKg.toFixed(2)} kg
           </p>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-200">
             Corresponde exclusivamente a entregas pesadas físicamente y declaradas al confirmar la operación.
           </p>
         </section>
 
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-2">
+        <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#102C49] bg-[#F4F6F8] px-2.5 py-1 rounded-lg">
+            <span className="text-xs font-bold text-[#FDE68A] bg-[#2A2015] border border-[#F28C28]/40 px-2.5 py-1 rounded-lg">
               PESO ESTIMADO (metodología de referencia)
             </span>
-            <Info className="h-5 w-5 text-[#F28C28]" />
+            <Info className="h-5 w-5 text-[#FFA94D]" />
           </div>
-          <p className="font-mono text-3xl font-bold text-[#102C49] tabular-nums pt-2">
+          <p className="font-mono text-3xl font-bold text-white tabular-nums pt-2">
             {stats.estimatedKg.toFixed(2)} kg
           </p>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-200">
             Calculado mediante pesos de referencia por categoría cuando no existió pesaje real. No representa medición directa.
           </p>
         </section>
@@ -190,16 +187,16 @@ export const ImpactPage: React.FC = () => {
 
       {/* Gráficos por categoría, sector y evolución mensual */}
       {loading ? (
-        <div className="h-48 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+        <div className="h-48 rounded-2xl bg-[#102C49] border border-[#244B73] animate-pulse" />
       ) : (
         <div className="grid lg:grid-cols-3 gap-6">
-          <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-            <div className="flex items-center gap-2 font-display font-bold text-sm text-[#102C49]">
-              <BarChart3 className="h-4 w-4 text-[#F28C28]" />
+          <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+            <div className="flex items-center gap-2 font-display font-bold text-sm text-white">
+              <BarChart3 className="h-4 w-4 text-[#FFA94D]" />
               <h2>Categorías con mayor reutilización</h2>
             </div>
             {stats.categories.length === 0 ? (
-              <p className="text-xs text-slate-500">Sin operaciones registradas aún.</p>
+              <p className="text-xs text-slate-300">Sin operaciones registradas aún.</p>
             ) : (
               <div className="space-y-3">
                 {stats.categories.slice(0, 6).map(([name, qty]) => {
@@ -207,10 +204,10 @@ export const ImpactPage: React.FC = () => {
                   return (
                     <div key={name} className="space-y-1">
                       <div className="flex justify-between text-xs">
-                        <span className="font-medium text-[#102C49]">{name}</span>
-                        <span className="font-mono tabular-nums text-slate-600">{qty} u. ({pct}%)</span>
+                        <span className="font-medium text-white">{name}</span>
+                        <span className="font-mono tabular-nums text-slate-300">{qty} u. ({pct}%)</span>
                       </div>
-                      <div className="h-2 rounded-full bg-[#F4F6F8] overflow-hidden">
+                      <div className="h-2 rounded-full bg-[#0B1E33] overflow-hidden">
                         <div className="h-full bg-[#F28C28]" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
@@ -220,12 +217,12 @@ export const ImpactPage: React.FC = () => {
             )}
           </section>
 
-          <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-            <h2 className="font-display font-bold text-sm text-[#102C49]">
+          <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+            <h2 className="font-display font-bold text-sm text-white">
               Sectores con mayor participación
             </h2>
             {stats.sectors.length === 0 ? (
-              <p className="text-xs text-slate-500">Sin registros por sector aún.</p>
+              <p className="text-xs text-slate-300">Sin registros por sector aún.</p>
             ) : (
               <div className="space-y-3">
                 {stats.sectors.slice(0, 6).map(([name, qty]) => {
@@ -233,11 +230,11 @@ export const ImpactPage: React.FC = () => {
                   return (
                     <div key={name} className="space-y-1">
                       <div className="flex justify-between text-xs">
-                        <span className="font-medium text-[#102C49]">{name}</span>
-                        <span className="font-mono tabular-nums text-slate-600">{qty} u.</span>
+                        <span className="font-medium text-white">{name}</span>
+                        <span className="font-mono tabular-nums text-slate-300">{qty} u.</span>
                       </div>
-                      <div className="h-2 rounded-full bg-[#F4F6F8] overflow-hidden">
-                        <div className="h-full bg-[#1E7E48]" style={{ width: `${pct}%` }} />
+                      <div className="h-2 rounded-full bg-[#0B1E33] overflow-hidden">
+                        <div className="h-full bg-[#34D399]" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );
@@ -246,16 +243,16 @@ export const ImpactPage: React.FC = () => {
             )}
           </section>
 
-          <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-            <h2 className="font-display font-bold text-sm text-[#102C49]">Evolución mensual</h2>
+          <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+            <h2 className="font-display font-bold text-sm text-white">Evolución mensual</h2>
             {stats.months.length === 0 ? (
-              <p className="text-xs text-slate-500">Los datos aparecerán al finalizar operaciones.</p>
+              <p className="text-xs text-slate-300">Los datos aparecerán al finalizar operaciones.</p>
             ) : (
               <div className="space-y-2.5">
                 {stats.months.map(([month, qty]) => (
-                  <div key={month} className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
-                    <span className="font-mono text-slate-600">{month}</span>
-                    <span className="font-mono font-bold text-[#102C49] tabular-nums">{qty} productos</span>
+                  <div key={month} className="flex items-center justify-between text-xs border-b border-[#244B73] pb-2">
+                    <span className="font-mono text-slate-300">{month}</span>
+                    <span className="font-mono font-bold text-white tabular-nums">{qty} productos</span>
                   </div>
                 ))}
               </div>

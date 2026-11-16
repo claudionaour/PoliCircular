@@ -53,8 +53,8 @@ export const ExchangesPage: React.FC = () => {
     setLoading(true);
     try {
       const [list, revIds] = await Promise.all([
-        listUserExchanges(user.id),
-        listMySubmittedReviewExchangeIds(user.id),
+        listUserExchanges(user.uid),
+        listMySubmittedReviewExchangeIds(user.uid),
       ]);
       setExchanges(list);
       setReviewedIds(revIds);
@@ -75,7 +75,7 @@ export const ExchangesPage: React.FC = () => {
     try {
       await proposeExchangeDelivery({
         exchangeId,
-        proposedBy: user.id,
+        proposedBy: user.uid,
         proposedDate,
         proposedTimeSlot: proposedTime,
         meetingPointLabel: meetingLabel,
@@ -136,25 +136,29 @@ export const ExchangesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">
+        <h1 className="font-display text-2xl font-bold text-white">
           Mis intercambios y coordinación de entregas
         </h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-200">
           La operación se finaliza únicamente cuando ambas partes confirman la entrega. Nunca se publican domicilios particulares.
         </p>
       </div>
 
-      {error && <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{error}</div>}
+      {error && (
+        <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
+          {error}
+        </div>
+      )}
 
       {loading ? (
-        <div className="h-44 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+        <div className="h-44 rounded-2xl bg-[#102C49] border border-[#244B73] animate-pulse" />
       ) : exchanges.length === 0 ? (
-        <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center space-y-3">
-          <p className="font-display font-bold text-[#102C49]">Sin entregas en curso</p>
-          <p className="text-sm text-slate-600">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-8 text-center space-y-3">
+          <p className="font-display font-bold text-white">Sin entregas en curso</p>
+          <p className="text-sm text-slate-200">
             Cuando aceptes o te acepten una solicitud en Mis Match, podrás coordinar la entrega aquí.
           </p>
-          <Link to="/matches" className="inline-block px-4 py-2 rounded-xl bg-[#102C49] text-white text-xs font-semibold">
+          <Link to="/matches" className="inline-block px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold">
             Ir a Mis Match
           </Link>
         </div>
@@ -162,28 +166,28 @@ export const ExchangesPage: React.FC = () => {
         <div className="space-y-5">
           {exchanges.map((ex) => {
             const match = ex.matches;
-            const other = match?.owner_id === user?.id ? match?.requester : match?.owner;
+            const other = match?.owner_id === user?.uid ? match?.requester : match?.owner;
             const confirmations = ex.exchange_confirmations ?? [];
-            const iConfirmed = confirmations.some((c) => c.user_id === user?.id);
-            const otherConfirmed = confirmations.some((c) => c.user_id !== user?.id);
+            const iConfirmed = confirmations.some((c) => c.user_id === user?.uid);
+            const otherConfirmed = confirmations.some((c) => c.user_id !== user?.uid);
             const alreadyReviewed = reviewedIds.includes(ex.id);
             const isClosed = ex.status === 'completed' || ex.status === 'cancelled';
 
             return (
               <article
                 key={ex.id}
-                className="rounded-2xl bg-white border border-slate-200 p-5 space-y-4"
+                className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5 space-y-4"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-slate-300">
                       <span
                         className={`font-semibold ${
                           ex.status === 'completed'
-                            ? 'text-[#1E7E48]'
+                            ? 'text-[#6EE7B7]'
                             : ex.status === 'cancelled' || ex.status === 'disputed'
-                              ? 'text-red-700'
-                              : 'text-[#F28C28]'
+                              ? 'text-red-300'
+                              : 'text-[#FFA94D]'
                         }`}
                       >
                         {EXCHANGE_STATUS_LABELS[ex.status]}
@@ -191,11 +195,11 @@ export const ExchangesPage: React.FC = () => {
                       <span aria-hidden="true"> · </span>
                       <span>Contraparte: {other?.full_name || 'Participante'}</span>
                     </div>
-                    <h2 className="font-display text-lg font-bold text-[#102C49]">
+                    <h2 className="font-display text-lg font-bold text-white">
                       {match?.target_product?.title}
                     </h2>
                     {match?.offered_product && (
-                      <p className="text-xs text-[#1E7E48]">
+                      <p className="text-xs text-[#6EE7B7]">
                         Intercambio con: {match.offered_product.title}
                       </p>
                     )}
@@ -204,37 +208,37 @@ export const ExchangesPage: React.FC = () => {
                   {match && (
                     <Link
                       to={`/matches/${match.id}`}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-[#102C49] hover:bg-[#F4F6F8] self-start"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-xs font-semibold text-white hover:bg-[#163B61] self-start"
                     >
-                      <MessageSquare className="h-4 w-4" />
+                      <MessageSquare className="h-4 w-4 text-[#FFA94D]" />
                       <span>Abrir chat</span>
                     </Link>
                   )}
                 </div>
 
                 {/* Resumen de coordinación actual */}
-                <div className="rounded-xl bg-[#F4F6F8] p-4 grid sm:grid-cols-3 gap-3 text-xs">
+                <div className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4 grid sm:grid-cols-3 gap-3 text-xs">
                   <div className="flex items-start gap-2">
-                    <Calendar className="h-4 w-4 text-[#102C49] shrink-0 mt-0.5" />
+                    <Calendar className="h-4 w-4 text-[#FFA94D] shrink-0 mt-0.5" />
                     <div>
-                      <span className="text-slate-500 block">Fecha y horario</span>
-                      <strong className="text-[#102C49]">
+                      <span className="text-slate-300 block">Fecha y horario</span>
+                      <strong className="text-white">
                         {ex.proposed_date ? `${formatChileDate(ex.proposed_date)} · ${ex.proposed_time_slot || ''}` : 'Por definir'}
                       </strong>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-[#F28C28] shrink-0 mt-0.5" />
+                    <MapPin className="h-4 w-4 text-[#FFA94D] shrink-0 mt-0.5" />
                     <div>
-                      <span className="text-slate-500 block">Punto de encuentro público</span>
-                      <strong className="text-[#102C49]">
+                      <span className="text-slate-300 block">Punto de encuentro público</span>
+                      <strong className="text-white">
                         {ex.meeting_point_label || 'Sin definir'}
                       </strong>
                     </div>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Confirmación bilateral</span>
-                    <strong className="text-[#102C49]">
+                    <span className="text-slate-300 block">Confirmación bilateral</span>
+                    <strong className="text-white">
                       Tu confirmación: {iConfirmed ? 'Sí' : 'Pendiente'} · Otra parte: {otherConfirmed ? 'Sí' : 'Pendiente'}
                     </strong>
                   </div>
@@ -242,29 +246,29 @@ export const ExchangesPage: React.FC = () => {
 
                 {/* Formulario de coordinación */}
                 {activeCoordId === ex.id && !isClosed && (
-                  <div className="rounded-xl border border-slate-200 p-4 space-y-4">
+                  <div className="rounded-xl border border-[#244B73] bg-[#0B1E33] p-4 space-y-4">
                     <div className="grid sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-[#102C49] mb-1">Fecha</label>
+                        <label className="block text-xs font-semibold text-slate-200 mb-1">Fecha</label>
                         <input
                           type="date"
                           value={proposedDate}
                           onChange={(e) => setProposedDate(e.target.value)}
-                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white px-3 py-2 text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-[#102C49] mb-1">Horario</label>
+                        <label className="block text-xs font-semibold text-slate-200 mb-1">Horario</label>
                         <input
                           type="text"
                           value={proposedTime}
                           onChange={(e) => setProposedTime(e.target.value)}
                           placeholder="16:00 - 17:00"
-                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white placeholder:text-slate-400 px-3 py-2 text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                        <label className="block text-xs font-semibold text-slate-200 mb-1">
                           Punto de encuentro público
                         </label>
                         <input
@@ -272,7 +276,7 @@ export const ExchangesPage: React.FC = () => {
                           value={meetingLabel}
                           onChange={(e) => setMeetingLabel(e.target.value)}
                           placeholder="Plaza, liceo o sede comunitaria"
-                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-[#2D557F] bg-[#102C49] text-white placeholder:text-slate-400 px-3 py-2 text-xs"
                         />
                       </div>
                     </div>
@@ -293,21 +297,21 @@ export const ExchangesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setActiveCoordId(null)}
-                        className="px-3.5 py-2 text-xs font-semibold text-slate-600"
+                        className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white"
                       >
                         Cerrar
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSaveCoordination(ex.id, false)}
-                        className="px-4 py-2 rounded-xl border border-[#102C49] text-xs font-semibold text-[#102C49]"
+                        className="px-4 py-2 rounded-xl border border-[#3B648F] bg-[#102C49] text-xs font-semibold text-white hover:bg-[#163B61]"
                       >
                         Enviar propuesta
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSaveCoordination(ex.id, true)}
-                        className="px-4 py-2 rounded-xl bg-[#102C49] text-white text-xs font-semibold"
+                        className="px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
                       >
                         Marcar entrega acordada
                       </button>
@@ -317,16 +321,16 @@ export const ExchangesPage: React.FC = () => {
 
                 {/* Confirmación bilateral */}
                 {confirmingId === ex.id && !isClosed && (
-                  <div className="rounded-xl border border-[#1E7E48]/30 bg-[#E6F4EA]/50 p-4 space-y-3">
-                    <h3 className="font-display font-bold text-sm text-[#102C49]">
+                  <div className="rounded-xl border border-[#34D399]/40 bg-[#143D29] p-4 space-y-3">
+                    <h3 className="font-display font-bold text-sm text-white">
                       Confirmar entrega realizada
                     </h3>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-200">
                       Si pesaron realmente los objetos entregados en una balanza, pueden registrar el peso medido real. Si lo dejas vacío, el sistema calculará un peso estimado de referencia.
                     </p>
                     <div className="grid sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                        <label className="block text-xs font-semibold text-slate-200 mb-1">
                           Peso medido real en kg (solo si fue pesado)
                         </label>
                         <input
@@ -336,11 +340,11 @@ export const ExchangesPage: React.FC = () => {
                           value={measuredWeight}
                           onChange={(e) => setMeasuredWeight(e.target.value)}
                           placeholder="Opcional (ej. 2.5)"
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono"
+                          className="w-full rounded-xl border border-[#34D399]/40 bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs font-mono"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-[#102C49] mb-1">
+                        <label className="block text-xs font-semibold text-slate-200 mb-1">
                           Notas de entrega (opcional)
                         </label>
                         <input
@@ -348,7 +352,7 @@ export const ExchangesPage: React.FC = () => {
                           value={confirmNotes}
                           onChange={(e) => setConfirmNotes(e.target.value)}
                           placeholder="Entregado en buenas condiciones"
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-[#34D399]/40 bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs"
                         />
                       </div>
                     </div>
@@ -356,7 +360,7 @@ export const ExchangesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setConfirmingId(null)}
-                        className="px-3 py-2 text-xs font-semibold text-slate-600"
+                        className="px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white"
                       >
                         Cancelar
                       </button>
@@ -364,7 +368,7 @@ export const ExchangesPage: React.FC = () => {
                         type="button"
                         onClick={() => handleConfirmDelivery(ex.id)}
                         disabled={!isOnline}
-                        className="px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#166539] disabled:opacity-50"
+                        className="px-4 py-2 rounded-xl bg-[#34D399] text-[#0B1E33] text-xs font-bold hover:bg-[#6EE7B7] disabled:opacity-50"
                       >
                         Registrar mi confirmación
                       </button>
@@ -373,7 +377,7 @@ export const ExchangesPage: React.FC = () => {
                 )}
 
                 {/* Acciones */}
-                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#244B73]">
                   {!isClosed && (
                     <>
                       <button
@@ -384,7 +388,7 @@ export const ExchangesPage: React.FC = () => {
                           setMeetingLabel(ex.meeting_point_label || 'Plaza de Armas de Castro (punto público)');
                           setActiveCoordId(activeCoordId === ex.id ? null : ex.id);
                         }}
-                        className="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-[#102C49] hover:bg-[#F4F6F8]"
+                        className="px-3.5 py-2 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-xs font-semibold text-white hover:bg-[#163B61]"
                       >
                         Proponer fecha / lugar
                       </button>
@@ -393,7 +397,7 @@ export const ExchangesPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setConfirmingId(confirmingId === ex.id ? null : ex.id)}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#166539]"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454]"
                         >
                           <CheckCircle2 className="h-4 w-4" />
                           <span>Confirmar entrega</span>
@@ -403,7 +407,7 @@ export const ExchangesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleCancel(ex.id)}
-                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-red-700"
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-red-300"
                       >
                         <XCircle className="h-4 w-4" />
                         <span>Cancelar acuerdo</span>
@@ -412,7 +416,7 @@ export const ExchangesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleDispute(ex.id)}
-                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-[#FDE68A] hover:bg-[#2A2015]"
                       >
                         <AlertTriangle className="h-4 w-4" />
                         <span>Informar incumplimiento</span>
@@ -429,7 +433,7 @@ export const ExchangesPage: React.FC = () => {
                           name: other?.full_name || 'Participante',
                         })
                       }
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F28C28] text-white text-xs font-semibold hover:bg-[#D97719]"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
                     >
                       <Star className="h-4 w-4" />
                       <span>Evaluar intercambio</span>
@@ -437,7 +441,7 @@ export const ExchangesPage: React.FC = () => {
                   )}
 
                   {ex.status === 'completed' && alreadyReviewed && (
-                    <span className="text-xs font-medium text-[#1E7E48]">
+                    <span className="text-xs font-medium text-[#6EE7B7]">
                       Evaluación enviada · Operación contabilizada en tu Árbol Circular
                     </span>
                   )}

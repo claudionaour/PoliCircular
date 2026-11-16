@@ -1,4 +1,36 @@
-import { isSupabaseConfigured, requireSupabase } from './supabase';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import {
+  ENABLE_CLOUD_FUNCTIONS,
+  auth,
+  db,
+  functions,
+  handleFirestoreError,
+  OperationType,
+  toIsoString,
+  toNullableIsoString,
+} from './firebase';
+import {
+  fetchImagesByProductIds,
+  fetchLookupMaps,
+  fetchProfilesMap,
+  hydrateProductDoc,
+  mapCommuneDoc,
+  mapProfileDoc,
+  mapSectorDoc,
+} from './firestoreHelpers';
 import type {
   Commune,
   EducationalInstitution,
@@ -8,6 +40,7 @@ import type {
   Profile,
   ReportRecord,
   Sector,
+  UserRole,
 } from '../types/domain';
 
 export interface AdminDashboardStats {
@@ -21,73 +54,89 @@ export interface AdminDashboardStats {
   openReports: number;
 }
 
-export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
-  if (!isSupabaseConfigured) {
-    return {
-      usersCount: 0,
-      pendingProducts: 0,
-      approvedProducts: 0,
-      rejectedProducts: 0,
-      requestsCount: 0,
-      matchesCount: 0,
-      completedExchanges: 0,
-      openReports: 0,
-    };
-  }
-  const sb = requireSupabase();
-  const [
-    usersRes,
-    pendingRes,
-    approvedRes,
-    rejectedRes,
-    requestsRes,
-    matchesRes,
-    exchangesRes,
-    reportsRes,
-  ] = await Promise.all([
-    sb.from('profiles').select('id', { count: 'exact', head: true }),
-    sb.from('products').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    sb.from('products').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
-    sb.from('products').select('id', { count: 'exact', head: true }).eq('status', 'rejected'),
-    sb.from('match_requests').select('id', { count: 'exact', head: true }),
-    sb.from('matches').select('id', { count: 'exact', head: true }),
-    sb.from('exchanges').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
-    sb.from('reports').select('id', { count: 'exact', head: true }).in('status', ['open', 'under_review']),
-  ]);
+function slugifyId(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || `item-${Date.now()}`
+  );
+}
 
-  return {
-    usersCount: usersRes.count ?? 0,
-    pendingProducts: pendingRes.count ?? 0,
-    approvedProducts: approvedRes.count ?? 0,
-    rejectedProducts: rejectedRes.count ?? 0,
-    requestsCount: requestsRes.count ?? 0,
-    matchesCount: matchesRes.count ?? 0,
-    completedExchanges: exchangesRes.count ?? 0,
-    openReports: reportsRes.count ?? 0,
-  };
+export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
+  try {
+    const [usersSnap, productsSnap, reqSnap, matchSnap, exSnap, repSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'products')),
+      getDocs(collection(db, 'match_requests')),
+      getDocs(collection(db, 'matches')),
+      getDocs(collection(db, 'exchanges')),
+      getDocs(collection(db, 'reports')),
+    ]);
+
+    let pendingProducts = 0;
+    let approvedProducts = 0;
+    let rejectedProducts = 0;
+    productsSnap.forEach((d) => {
+      const s = d.data().status;
+      if (s === 'pending') pendingProducts += 1;
+      else if (s === 'approved') approvedProducts += 1;
+      else if (s === 'rejected') rejectedProducts += 1;
+    });
+
+    let completedExchanges = 0;
+    exSnap.forEach((d) => {
+      if (d.data().status === 'completed') completedExchanges += 1;
+    });
+
+    let openReports = 0;
+    repSnap.forEach((d) => {
+      const s = d.data().status;
+      if (s === 'open' || s === 'under_review') openReports += 1;
+    });
+
+    return {
+      usersCount: usersSnap.size,
+      pendingProducts,
+      approvedProducts,
+      rejectedProducts,
+      requestsCount: reqSnap.size,
+      matchesCount: matchSnap.size,
+      completedExchanges,
+      openReports,
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'admin_stats');
+  }
 }
 
 export async function listModerationQueue(statusFilter?: string): Promise<Product[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  let query = sb
-    .from('products')
-    .select(`
-      *,
-      categories(id, name),
-      communes(id, name),
-      sectors(id, name),
-      profiles!products_owner_id_fkey(id, full_name, username, account_type, institution_name),
-      product_images(id, public_url, is_primary, sort_order)
-    `)
-    .order('created_at', { ascending: false });
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'products'), orderBy('created_at', 'desc'))
+    );
+    const docs = statusFilter
+      ? snap.docs.filter((d) => d.data().status === statusFilter)
+      : snap.docs;
 
-  if (statusFilter) {
-    query = query.eq('status', statusFilter);
+    if (docs.length === 0) return [];
+    const maps = await fetchLookupMaps();
+    const ownerIds = docs.map((d) => String(d.data().owner_id || ''));
+    const productIds = docs.map((d) => d.id);
+    const [profiles, images] = await Promise.all([
+      fetchProfilesMap(ownerIds),
+      fetchImagesByProductIds(productIds),
+    ]);
+
+    return docs.map((d) =>
+      hydrateProductDoc(d.id, d.data(), { ...maps, profiles, images })
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'products');
   }
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as Product[];
 }
 
 export async function moderateProductRpc(
@@ -95,44 +144,183 @@ export async function moderateProductRpc(
   action: 'approve' | 'reject' | 'suspend',
   reason?: string
 ): Promise<Product> {
-  const sb = requireSupabase();
-  const { data, error } = await sb.rpc('moderate_product', {
-    p_product_id: productId,
-    p_action: action,
-    p_reason: reason?.trim() || null,
-  });
-  if (error) throw error;
-  return data as Product;
+  const decision =
+    action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'suspended';
+
+  if (ENABLE_CLOUD_FUNCTIONS) {
+    const fn = httpsCallable(functions, 'moderateProduct');
+    await fn({ productId, decision, notes: reason });
+    const updatedSnap = await getDoc(doc(db, 'products', productId));
+    return { id: updatedSnap.id, ...(updatedSnap.data() as Omit<Product, 'id'>) };
+  }
+
+  const actorUid = auth.currentUser?.uid;
+  if (!actorUid) throw new Error('Sesión administrativa requerida.');
+
+  const prodRef = doc(db, 'products', productId);
+  const prodSnap = await getDoc(prodRef);
+  if (!prodSnap.exists()) throw new Error('Publicación no encontrada.');
+  const prod = prodSnap.data();
+
+  try {
+    const batch = writeBatch(db);
+    batch.update(prodRef, {
+      status: decision,
+      moderation_notes: reason?.trim() || null,
+      moderated_by: actorUid,
+      moderated_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    });
+
+    const logRef = doc(collection(db, 'moderation_logs'));
+    batch.set(logRef, {
+      id: logRef.id,
+      actor_id: actorUid,
+      target_type: 'product',
+      target_id: productId,
+      action: `product_${decision}`,
+      previous_status: String(prod.status || ''),
+      new_status: decision,
+      notes: reason?.trim() || null,
+      created_at: serverTimestamp(),
+    });
+
+    const notifRef = doc(collection(db, 'notifications'));
+    batch.set(notifRef, {
+      id: notifRef.id,
+      user_id: String(prod.owner_id),
+      event_type: `product_${decision}`,
+      title:
+        decision === 'approved'
+          ? '¡Tu publicación fue aprobada!'
+          : decision === 'rejected'
+            ? 'Tu publicación requiere ajustes'
+            : 'Tu publicación fue suspendida',
+      body:
+        decision === 'approved'
+          ? `“${prod.title}” ya está visible para la comunidad de PoliCircular.`
+          : `“${prod.title}” recibió observaciones: ${reason || 'Revisa las reglas comunitarias.'}`,
+      link_path: '/mis-publicaciones',
+      is_read: false,
+      created_at: serverTimestamp(),
+    });
+
+    await batch.commit();
+    const afterSnap = await getDoc(prodRef);
+    return { id: afterSnap.id, ...(afterSnap.data() as Omit<Product, 'id'>) };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `products/${productId}`);
+  }
 }
 
 export async function listModerationLogs(): Promise<ModerationLog[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  const { data, error } = await sb
-    .from('moderation_logs')
-    .select('*, actor:profiles!moderation_logs_actor_id_fkey(full_name, username)')
-    .order('created_at', { ascending: false })
-    .limit(100);
-  if (error) throw error;
-  return (data ?? []) as ModerationLog[];
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'moderation_logs'), orderBy('created_at', 'desc'), limit(100))
+    );
+    if (snap.empty) return [];
+    const actorIds = snap.docs.map((d) => String(d.data().actor_id || ''));
+    const profiles = await fetchProfilesMap(actorIds);
+
+    return snap.docs.map((d) => {
+      const data = d.data();
+      const actor = profiles.get(String(data.actor_id || ''));
+      return {
+        id: d.id,
+        actor_id: String(data.actor_id || ''),
+        target_type: String(data.target_type || ''),
+        target_id: String(data.target_id || ''),
+        action: String(data.action || ''),
+        previous_status: data.previous_status ? String(data.previous_status) : null,
+        new_status: data.new_status ? String(data.new_status) : null,
+        notes: data.notes ? String(data.notes) : null,
+        created_at: toIsoString(data.created_at),
+        actor: actor
+          ? { full_name: actor.full_name, username: actor.username }
+          : null,
+      };
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'moderation_logs');
+  }
 }
 
 export async function listUsersForAdmin(search?: string): Promise<Profile[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  let query = sb
-    .from('profiles')
-    .select('*, communes(id, name, region), sectors(id, name, approx_lat, approx_lng)')
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  if (search?.trim()) {
-    const q = search.trim();
-    query = query.or(`full_name.ilike.%${q}%,username.ilike.%${q}%`);
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'users'), orderBy('created_at', 'desc'), limit(100))
+    );
+    let profiles = snap.docs.map((d) => mapProfileDoc(d.id, d.data()));
+    if (search?.trim()) {
+      const q = search.trim().toLowerCase();
+      profiles = profiles.filter(
+        (p) =>
+          p.full_name.toLowerCase().includes(q) ||
+          p.username.toLowerCase().includes(q) ||
+          (p.institution_name || '').toLowerCase().includes(q)
+      );
+    }
+    return profiles;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'users');
   }
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as Profile[];
+}
+
+export async function listUserRolesMapAdmin(): Promise<Map<string, UserRole[]>> {
+  const map = new Map<string, UserRole[]>();
+  try {
+    const snap = await getDocs(collection(db, 'user_roles'));
+    snap.forEach((d) => {
+      const roles = (d.data().roles as UserRole[] | undefined) || ['user'];
+      map.set(d.id, roles);
+    });
+  } catch {
+    // Si no tiene permiso de listado completo, devuelve mapa vacío sin romper la vista
+  }
+  return map;
+}
+
+export async function assignUserRolesAdmin(
+  targetUserId: string,
+  roles: UserRole[]
+): Promise<UserRole[]> {
+  if (ENABLE_CLOUD_FUNCTIONS) {
+    const fn = httpsCallable<{ targetUserId: string; roles: UserRole[] }, { roles: UserRole[] }>(
+      functions,
+      'assignUserRole'
+    );
+    const res = await fn({ targetUserId, roles });
+    return res.data.roles;
+  }
+
+  const actorUid = auth.currentUser?.uid;
+  if (!actorUid) throw new Error('Sesión requerida.');
+  const sanitized = Array.from(new Set<UserRole>(['user', ...roles]));
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'user_roles', targetUserId), {
+      user_id: targetUserId,
+      roles: sanitized,
+      assigned_by: actorUid,
+      updated_at: serverTimestamp(),
+    });
+    const logRef = doc(collection(db, 'moderation_logs'));
+    batch.set(logRef, {
+      id: logRef.id,
+      actor_id: actorUid,
+      target_type: 'user_roles',
+      target_id: targetUserId,
+      action: 'assign_roles',
+      new_status: sanitized.join(','),
+      notes: 'Roles actualizados por Superadministrador',
+      created_at: serverTimestamp(),
+    });
+    await batch.commit();
+    return sanitized;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `user_roles/${targetUserId}`);
+  }
 }
 
 export async function toggleUserSuspensionRpc(
@@ -140,14 +328,33 @@ export async function toggleUserSuspensionRpc(
   suspend: boolean,
   reason?: string
 ): Promise<Profile> {
-  const sb = requireSupabase();
-  const { data, error } = await sb.rpc('admin_toggle_user_suspension', {
-    p_target_user_id: userId,
-    p_suspend: suspend,
-    p_reason: reason?.trim() || null,
-  });
-  if (error) throw error;
-  return data as Profile;
+  const actorUid = auth.currentUser?.uid;
+  if (!actorUid) throw new Error('Sesión requerida.');
+
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', userId), {
+      is_suspended: suspend,
+      suspension_reason: suspend ? reason?.trim() || 'Suspendido por administración' : null,
+      updated_at: serverTimestamp(),
+    });
+    const logRef = doc(collection(db, 'moderation_logs'));
+    batch.set(logRef, {
+      id: logRef.id,
+      actor_id: actorUid,
+      target_type: 'user',
+      target_id: userId,
+      action: suspend ? 'user_suspended' : 'user_reactivated',
+      new_status: suspend ? 'suspended' : 'active',
+      notes: reason?.trim() || null,
+      created_at: serverTimestamp(),
+    });
+    await batch.commit();
+    const updated = await getDoc(doc(db, 'users', userId));
+    return mapProfileDoc(updated.id, updated.data()!);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+  }
 }
 
 export async function saveCommuneAdmin(payload: {
@@ -158,36 +365,36 @@ export async function saveCommuneAdmin(payload: {
   latitude?: number | null;
   longitude?: number | null;
 }): Promise<Commune> {
-  const sb = requireSupabase();
-  if (payload.id) {
-    const { data, error } = await sb
-      .from('communes')
-      .update({
+  const docId = payload.id || slugifyId(payload.name);
+  try {
+    if (payload.id) {
+      await updateDoc(doc(db, 'communes', docId), {
         name: payload.name.trim(),
         region: payload.region.trim(),
         is_active: payload.is_active,
         latitude: payload.latitude ?? null,
         longitude: payload.longitude ?? null,
-      })
-      .eq('id', payload.id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as Commune;
+        updated_at: serverTimestamp(),
+      });
+    } else {
+      await setDoc(doc(db, 'communes', docId), {
+        id: docId,
+        name: payload.name.trim(),
+        region: payload.region.trim(),
+        country: 'Chile',
+        timezone: 'America/Santiago',
+        is_active: payload.is_active,
+        latitude: payload.latitude ?? null,
+        longitude: payload.longitude ?? null,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    }
+    const snap = await getDoc(doc(db, 'communes', docId));
+    return mapCommuneDoc(snap.id, snap.data()!);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `communes/${docId}`);
   }
-  const { data, error } = await sb
-    .from('communes')
-    .insert({
-      name: payload.name.trim(),
-      region: payload.region.trim(),
-      is_active: payload.is_active,
-      latitude: payload.latitude ?? null,
-      longitude: payload.longitude ?? null,
-    })
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as Commune;
 }
 
 export async function saveSectorAdmin(payload: {
@@ -199,48 +406,64 @@ export async function saveSectorAdmin(payload: {
   approx_lng?: number | null;
   is_active: boolean;
 }): Promise<Sector> {
-  const sb = requireSupabase();
-  if (payload.id) {
-    const { data, error } = await sb
-      .from('sectors')
-      .update({
+  const docId = payload.id || `${payload.commune_id}-${slugifyId(payload.name)}`;
+  try {
+    if (payload.id) {
+      await updateDoc(doc(db, 'sectors', docId), {
         name: payload.name.trim(),
         description: payload.description?.trim() || null,
         approx_lat: payload.approx_lat ?? null,
         approx_lng: payload.approx_lng ?? null,
         is_active: payload.is_active,
-      })
-      .eq('id', payload.id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as Sector;
+        updated_at: serverTimestamp(),
+      });
+    } else {
+      await setDoc(doc(db, 'sectors', docId), {
+        id: docId,
+        commune_id: payload.commune_id,
+        name: payload.name.trim(),
+        description: payload.description?.trim() || null,
+        approx_lat: payload.approx_lat ?? null,
+        approx_lng: payload.approx_lng ?? null,
+        is_active: payload.is_active,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    }
+    const snap = await getDoc(doc(db, 'sectors', docId));
+    return mapSectorDoc(snap.id, snap.data()!);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `sectors/${docId}`);
   }
-  const { data, error } = await sb
-    .from('sectors')
-    .insert({
-      commune_id: payload.commune_id,
-      name: payload.name.trim(),
-      description: payload.description?.trim() || null,
-      approx_lat: payload.approx_lat ?? null,
-      approx_lng: payload.approx_lng ?? null,
-      is_active: payload.is_active,
-    })
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as Sector;
 }
 
 export async function listEducationalInstitutions(): Promise<EducationalInstitution[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  const { data, error } = await sb
-    .from('educational_institutions')
-    .select('*, communes(name)')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as EducationalInstitution[];
+  try {
+    const [snap, maps] = await Promise.all([
+      getDocs(
+        query(collection(db, 'educational_institutions'), orderBy('created_at', 'desc'))
+      ),
+      fetchLookupMaps(),
+    ]);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      const com = data.commune_id ? maps.communes.get(String(data.commune_id)) : null;
+      return {
+        id: d.id,
+        name: String(data.name || ''),
+        institution_code: data.institution_code ? String(data.institution_code) : null,
+        commune_id: data.commune_id ? String(data.commune_id) : null,
+        sector_id: data.sector_id ? String(data.sector_id) : null,
+        responsible_name: String(data.responsible_name || ''),
+        badge_level: data.badge_level as InstitutionBadge,
+        is_verified: Boolean(data.is_verified),
+        created_at: toIsoString(data.created_at),
+        communes: com ? { name: com.name } : null,
+      };
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'educational_institutions');
+  }
 }
 
 export async function saveEducationalInstitution(payload: {
@@ -252,38 +475,49 @@ export async function saveEducationalInstitution(payload: {
   badge_level: InstitutionBadge;
   is_verified: boolean;
 }): Promise<EducationalInstitution> {
-  const sb = requireSupabase();
-  if (payload.id) {
-    const { data, error } = await sb
-      .from('educational_institutions')
-      .update({
+  const instRef = payload.id
+    ? doc(db, 'educational_institutions', payload.id)
+    : doc(collection(db, 'educational_institutions'));
+  try {
+    if (payload.id) {
+      await updateDoc(instRef, {
         name: payload.name.trim(),
         institution_code: payload.institution_code?.trim() || null,
         commune_id: payload.commune_id || null,
         responsible_name: payload.responsible_name.trim(),
         badge_level: payload.badge_level,
         is_verified: payload.is_verified,
-      })
-      .eq('id', payload.id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as EducationalInstitution;
+        updated_at: serverTimestamp(),
+      });
+    } else {
+      await setDoc(instRef, {
+        id: instRef.id,
+        name: payload.name.trim(),
+        institution_code: payload.institution_code?.trim() || null,
+        commune_id: payload.commune_id || null,
+        responsible_name: payload.responsible_name.trim(),
+        badge_level: payload.badge_level,
+        is_verified: payload.is_verified,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    }
+    const snap = await getDoc(instRef);
+    const d = snap.data()!;
+    return {
+      id: snap.id,
+      name: String(d.name || ''),
+      institution_code: d.institution_code ? String(d.institution_code) : null,
+      commune_id: d.commune_id ? String(d.commune_id) : null,
+      sector_id: null,
+      responsible_name: String(d.responsible_name || ''),
+      badge_level: d.badge_level as InstitutionBadge,
+      is_verified: Boolean(d.is_verified),
+      created_at: toIsoString(d.created_at),
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `educational_institutions/${instRef.id}`);
   }
-  const { data, error } = await sb
-    .from('educational_institutions')
-    .insert({
-      name: payload.name.trim(),
-      institution_code: payload.institution_code?.trim() || null,
-      commune_id: payload.commune_id || null,
-      responsible_name: payload.responsible_name.trim(),
-      badge_level: payload.badge_level,
-      is_verified: payload.is_verified,
-    })
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as EducationalInstitution;
 }
 
 export async function createReport(params: {
@@ -293,27 +527,56 @@ export async function createReport(params: {
   reasonCategory: string;
   description: string;
 }): Promise<void> {
-  const sb = requireSupabase();
-  const { error } = await sb.from('reports').insert({
-    reporter_id: params.reporterId,
-    target_type: params.targetType,
-    target_id: params.targetId,
-    reason_category: params.reasonCategory,
-    description: params.description.trim(),
-    status: 'open',
-  });
-  if (error) throw error;
+  const reportRef = doc(collection(db, 'reports'));
+  try {
+    await setDoc(reportRef, {
+      id: reportRef.id,
+      reporter_id: params.reporterId,
+      target_type: params.targetType,
+      target_id: params.targetId,
+      reason_category: params.reasonCategory,
+      description: params.description.trim(),
+      status: 'open',
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `reports/${reportRef.id}`);
+  }
 }
 
 export async function listReportsAdmin(): Promise<ReportRecord[]> {
-  if (!isSupabaseConfigured) return [];
-  const sb = requireSupabase();
-  const { data, error } = await sb
-    .from('reports')
-    .select('*, reporter:profiles!reports_reporter_id_fkey(id, full_name, username)')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as ReportRecord[];
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'reports'), orderBy('created_at', 'desc'))
+    );
+    if (snap.empty) return [];
+    const reporterIds = snap.docs.map((d) => String(d.data().reporter_id || ''));
+    const profiles = await fetchProfilesMap(reporterIds);
+
+    return snap.docs.map((d) => {
+      const data = d.data();
+      const rep = profiles.get(String(data.reporter_id || ''));
+      return {
+        id: d.id,
+        reporter_id: String(data.reporter_id || ''),
+        target_type: data.target_type,
+        target_id: String(data.target_id || ''),
+        reason_category: String(data.reason_category || ''),
+        description: String(data.description || ''),
+        status: data.status,
+        resolution_notes: data.resolution_notes ? String(data.resolution_notes) : null,
+        resolved_by: data.resolved_by ? String(data.resolved_by) : null,
+        resolved_at: toNullableIsoString(data.resolved_at),
+        created_at: toIsoString(data.created_at),
+        reporter: rep
+          ? { id: rep.id, full_name: rep.full_name, username: rep.username }
+          : null,
+      };
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'reports');
+  }
 }
 
 export async function resolveReportRpc(
@@ -321,12 +584,48 @@ export async function resolveReportRpc(
   status: 'under_review' | 'resolved' | 'dismissed',
   resolutionNotes: string
 ): Promise<ReportRecord> {
-  const sb = requireSupabase();
-  const { data, error } = await sb.rpc('admin_resolve_report', {
-    p_report_id: reportId,
-    p_status: status,
-    p_resolution_notes: resolutionNotes.trim(),
-  });
-  if (error) throw error;
-  return data as ReportRecord;
+  const actorUid = auth.currentUser?.uid;
+  if (!actorUid) throw new Error('Sesión requerida.');
+  const reportRef = doc(db, 'reports', reportId);
+
+  try {
+    const batch = writeBatch(db);
+    batch.update(reportRef, {
+      status,
+      resolution_notes: resolutionNotes.trim(),
+      resolved_by: actorUid,
+      resolved_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    });
+    const logRef = doc(collection(db, 'moderation_logs'));
+    batch.set(logRef, {
+      id: logRef.id,
+      actor_id: actorUid,
+      target_type: 'report',
+      target_id: reportId,
+      action: `report_${status}`,
+      new_status: status,
+      notes: resolutionNotes.trim(),
+      created_at: serverTimestamp(),
+    });
+    await batch.commit();
+
+    const snap = await getDoc(reportRef);
+    const d = snap.data()!;
+    return {
+      id: snap.id,
+      reporter_id: String(d.reporter_id || ''),
+      target_type: d.target_type,
+      target_id: String(d.target_id || ''),
+      reason_category: String(d.reason_category || ''),
+      description: String(d.description || ''),
+      status,
+      resolution_notes: resolutionNotes.trim(),
+      resolved_by: actorUid,
+      resolved_at: new Date().toISOString(),
+      created_at: toIsoString(d.created_at),
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `reports/${reportId}`);
+  }
 }

@@ -6,7 +6,7 @@ import {
   listEducationProgress,
   saveEducationModuleProgress,
 } from '../../services/treeImpactService';
-import { isSupabaseConfigured } from '../../services/supabase';
+import { isFirebaseConfigured } from '../../services/firebase';
 
 interface Lesson {
   slug: string;
@@ -98,8 +98,8 @@ export const EducationCenterPage: React.FC = () => {
   const [quizFeedback, setQuizFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) return;
-    listEducationProgress(user.id)
+    if (!user || !isFirebaseConfigured) return;
+    listEducationProgress(user.uid)
       .then((rows) => setCompletedSlugs(rows.map((r) => r.module_slug)))
       .catch(() => {});
   }, [user]);
@@ -112,9 +112,9 @@ export const EducationCenterPage: React.FC = () => {
     }
 
     setQuizFeedback('Respuesta correcta. Módulo educativo completado.');
-    if (user && isSupabaseConfigured) {
+    if (user && isFirebaseConfigured) {
       try {
-        await saveEducationModuleProgress(user.id, activeLesson.slug, 100);
+        await saveEducationModuleProgress(user.uid, activeLesson.slug, 100);
         setCompletedSlugs((prev) =>
           prev.includes(activeLesson.slug) ? prev : [...prev, activeLesson.slug]
         );
@@ -127,19 +127,19 @@ export const EducationCenterPage: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8">
       {/* Banner territorial */}
-      <section className="rounded-3xl overflow-hidden border border-slate-200 bg-white grid lg:grid-cols-12 items-stretch">
+      <section className="rounded-3xl overflow-hidden border border-[#244B73] bg-[#102C49] grid lg:grid-cols-12 items-stretch">
         <div className="lg:col-span-6 p-6 sm:p-8 flex flex-col justify-center space-y-3">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#1E7E48]">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#6EE7B7]">
             <BookOpen className="h-4 w-4" />
             <span>Centro Educativo</span>
           </div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#102C49]">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-white">
             APRENDAMOS A CIRCULAR
           </h1>
-          <p className="text-sm text-slate-600 leading-relaxed">
+          <p className="text-sm text-slate-200 leading-relaxed">
             Contenidos, desafíos y cuestionarios sobre economía circular, reparación, consumo responsable y cuidado ambiental desde Castro y el Archipiélago de Chiloé.
           </p>
-          <p className="text-xs font-medium text-[#102C49] tabular-nums">
+          <p className="text-xs font-medium text-slate-200 tabular-nums">
             Progreso registrado: {completedSlugs.length} de {LESSONS.length} módulos completados
           </p>
         </div>
@@ -169,13 +169,13 @@ export const EducationCenterPage: React.FC = () => {
                 }}
                 className={`w-full text-left rounded-2xl border p-4 transition-colors ${
                   active
-                    ? 'border-[#102C49] bg-[#102C49] text-white'
-                    : 'border-slate-200 bg-white text-[#102C49] hover:bg-[#F4F6F8]'
+                    ? 'border-[#F28C28] bg-[#F28C28] text-[#0B1E33]'
+                    : 'border-[#244B73] bg-[#102C49] text-white hover:bg-[#163B61]'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2 text-xs opacity-80">
+                <div className="flex items-center justify-between gap-2 text-xs opacity-90 font-semibold">
                   <span>Módulo 0{idx + 1}</span>
-                  {done && <CheckCircle2 className="h-4 w-4 text-[#52B788]" />}
+                  {done && <CheckCircle2 className={`h-4 w-4 ${active ? 'text-[#0B1E33]' : 'text-[#6EE7B7]'}`} />}
                 </div>
                 <h2 className="font-display font-bold text-sm mt-1">{lesson.title}</h2>
               </button>
@@ -183,48 +183,48 @@ export const EducationCenterPage: React.FC = () => {
           })}
         </aside>
 
-        <article className="lg:col-span-8 rounded-2xl bg-white border border-slate-200 p-6 sm:p-8 space-y-6">
+        <article className="lg:col-span-8 rounded-2xl bg-[#102C49] border border-[#244B73] p-6 sm:p-8 space-y-6">
           <div className="space-y-2">
-            <h2 className="font-display text-2xl font-bold text-[#102C49]">{activeLesson.title}</h2>
-            <p className="text-sm font-medium text-[#F28C28]">{activeLesson.summary}</p>
+            <h2 className="font-display text-2xl font-bold text-white">{activeLesson.title}</h2>
+            <p className="text-sm font-medium text-[#FFA94D]">{activeLesson.summary}</p>
           </div>
 
-          <p className="text-sm sm:text-base text-slate-700 leading-relaxed">{activeLesson.body}</p>
+          <p className="text-sm sm:text-base text-slate-200 leading-relaxed">{activeLesson.body}</p>
 
           {/* Infografía comparativa / Consejos */}
           <div className="grid sm:grid-cols-2 gap-4">
-            <div className="rounded-xl bg-[#E6F4EA] p-4 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1E7E48]">
+            <div className="rounded-xl bg-[#143D29] border border-[#34D399]/35 p-4 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#6EE7B7]">
                 <Lightbulb className="h-4 w-4" />
                 <span>Consejo práctico</span>
               </div>
-              <p className="text-xs text-[#102C49] leading-relaxed">{activeLesson.tip}</p>
+              <p className="text-xs text-slate-100 leading-relaxed">{activeLesson.tip}</p>
             </div>
-            <div className="rounded-xl bg-[#FFF8F1] p-4 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#F28C28]">
+            <div className="rounded-xl bg-[#2A2015] border border-[#F28C28]/40 p-4 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#FFA94D]">
                 <Leaf className="h-4 w-4" />
                 <span>Actividad / Desafío</span>
               </div>
-              <p className="text-xs text-[#102C49] leading-relaxed">{activeLesson.challenge}</p>
+              <p className="text-xs text-slate-100 leading-relaxed">{activeLesson.challenge}</p>
             </div>
           </div>
 
           {/* Cuestionario interactivo */}
-          <div className="pt-4 border-t border-slate-200 space-y-3">
-            <div className="flex items-center gap-2 font-display font-bold text-sm text-[#102C49]">
-              <HelpCircle className="h-4 w-4 text-[#F28C28]" />
+          <div className="pt-4 border-t border-[#244B73] space-y-3">
+            <div className="flex items-center gap-2 font-display font-bold text-sm text-white">
+              <HelpCircle className="h-4 w-4 text-[#FFA94D]" />
               <span>Cuestionario de comprobación</span>
             </div>
-            <p className="text-sm font-medium text-[#102C49]">{activeLesson.quizQuestion}</p>
+            <p className="text-sm font-medium text-white">{activeLesson.quizQuestion}</p>
 
             <div className="space-y-2">
               {activeLesson.quizOptions.map((opt, idx) => (
                 <label
                   key={opt}
-                  className={`flex items-center gap-3 p-3 rounded-xl border text-xs cursor-pointer ${
+                  className={`flex items-center gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-colors ${
                     selectedAnswer === idx
-                      ? 'border-[#102C49] bg-[#F4F6F8] font-semibold'
-                      : 'border-slate-200 hover:bg-[#F4F6F8]/60'
+                      ? 'border-[#FFA94D] bg-[#163B61] text-white font-semibold'
+                      : 'border-[#244B73] bg-[#0B1E33] text-slate-200 hover:bg-[#163B61]/70'
                   }`}
                 >
                   <input
@@ -240,10 +240,10 @@ export const EducationCenterPage: React.FC = () => {
 
             {quizFeedback && (
               <p
-                className={`text-xs p-3 rounded-xl ${
+                className={`text-xs p-3 rounded-xl border ${
                   selectedAnswer === activeLesson.correctIndex
-                    ? 'bg-[#E6F4EA] text-[#1E7E48]'
-                    : 'bg-amber-50 text-amber-800'
+                    ? 'bg-[#143D29] border-[#34D399]/40 text-[#6EE7B7]'
+                    : 'bg-[#2A2015] border-[#F28C28]/40 text-[#FDE68A]'
                 }`}
               >
                 {quizFeedback}
@@ -254,7 +254,7 @@ export const EducationCenterPage: React.FC = () => {
               type="button"
               onClick={handleQuizSubmit}
               disabled={selectedAnswer === null}
-              className="px-5 py-2.5 rounded-xl bg-[#102C49] text-white text-xs font-semibold hover:bg-[#0B2036] disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242] disabled:opacity-50"
             >
               Comprobar respuesta
             </button>
@@ -263,16 +263,16 @@ export const EducationCenterPage: React.FC = () => {
       </div>
 
       {/* Distintivos para establecimientos */}
-      <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-        <h2 className="font-display text-lg font-bold text-[#102C49]">
+      <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+        <h2 className="font-display text-lg font-bold text-white">
           Distintivos para establecimientos educacionales y comunidades
         </h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {SCHOOL_BADGES.map((b) => (
-            <div key={b.name} className="rounded-xl bg-[#F4F6F8] p-4 space-y-1.5">
-              <Award className="h-5 w-5 text-[#F28C28]" />
-              <h3 className="font-display font-bold text-sm text-[#102C49]">{b.name}</h3>
-              <p className="text-xs text-slate-600">{b.desc}</p>
+            <div key={b.name} className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4 space-y-1.5">
+              <Award className="h-5 w-5 text-[#FFA94D]" />
+              <h3 className="font-display font-bold text-sm text-white">{b.name}</h3>
+              <p className="text-xs text-slate-300">{b.desc}</p>
             </div>
           ))}
         </div>

@@ -6,7 +6,11 @@ import {
   markNotificationRead,
   subscribeUserNotifications,
 } from '../services/notificationService';
-import { isSupabaseConfigured } from '../services/supabase';
+import { isFirebaseConfigured } from '../services/firebase';
+import {
+  listenForegroundPushMessages,
+  registerUserPushToken,
+} from '../services/messagingService';
 import type { AppNotification } from '../types/domain';
 
 interface NotificationContextValue {
@@ -21,41 +25,52 @@ interface NotificationContextValue {
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, isEmailVerified } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!user || !isSupabaseConfigured) {
+    if (!user || !isFirebaseConfigured || !isEmailVerified) {
       setNotifications([]);
       return;
     }
     setLoading(true);
     try {
-      const items = await listNotifications(user.id);
+      const items = await listNotifications(user.uid);
       setNotifications(items);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, isEmailVerified]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) return;
-    const channel = subscribeUserNotifications(user.id, (incoming) => {
+    if (!user || !isFirebaseConfigured || !isEmailVerified) return;
+    const channel = subscribeUserNotifications(user.uid, (incoming) => {
       setNotifications((prev) => {
         if (prev.some((n) => n.id === incoming.id)) return prev;
-        return [incoming, ...prev];
+        return [incoming, ...prev]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 60);
       });
+    });
+
+    registerUserPushToken(user.uid).catch(() => {});
+    let unsubForeground = () => {};
+    listenForegroundPushMessages(() => {
+      refresh().catch(() => {});
+    }).then((fn) => {
+      unsubForeground = fn;
     });
 
     return () => {
       channel.unsubscribe();
+      unsubForeground();
     };
-  }, [user]);
+  }, [user, isEmailVerified, refresh]);
 
   const markAsRead = useCallback(async (id: string) => {
     setNotifications((prev) =>
@@ -67,7 +82,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const markAllAsRead = useCallback(async () => {
     if (!user) return;
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    await markAllNotificationsRead(user.id);
+    await markAllNotificationsRead(user.uid);
   }, [user]);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;

@@ -6,21 +6,22 @@
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --color-navy: #102C49;
-  --color-navy-hover: #0B2036;
+  --color-navy: #0B1E33;
+  --color-navy-hover: #163B61;
   --color-orange: #F28C28;
-  --color-orange-hover: #D97719;
-  --color-surface: #F4F6F8;
-  --color-border-subtle: #E2E8F0;
-  --color-eco-bg: #E6F4EA;
-  --color-eco-text: #1E7E48;
+  --color-orange-hover: #FFA242;
+  --color-surface: #102C49;
+  --color-border-subtle: #244B73;
+  --color-eco-bg: #143D29;
+  --color-eco-text: #6EE7B7;
 }
 
 @layer base {
   html {
+    color-scheme: dark;
     font-family: var(--font-sans);
-    color: #102C49;
-    background-color: #FFFFFF;
+    color: #FFFFFF;
+    background-color: #0B1E33;
     scroll-behavior: smooth;
   }
 

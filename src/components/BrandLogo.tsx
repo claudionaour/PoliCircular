@@ -5,7 +5,7 @@ interface BrandLogoProps {
   lightText?: boolean;
 }
 
-export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', lightText = false }) => {
+export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', lightText = true }) => {
   const dim = size === 'sm' ? 'h-8 w-8' : size === 'lg' ? 'h-11 w-11' : 'h-9 w-9';
   const textSize = size === 'sm' ? 'text-lg' : size === 'lg' ? 'text-2xl' : 'text-xl';
 
@@ -17,16 +17,16 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', lightText = f
         className={`${dim} shrink-0`}
         aria-hidden="true"
       >
-        <rect width="64" height="64" rx="16" fill="#102C49" />
+        <rect width="64" height="64" rx="16" fill="#FFFFFF" />
         <path
           d="M32 12C20.954 12 12 20.954 12 32C12 35.8 13.06 39.35 14.9 42.38"
-          stroke="#FFFFFF"
+          stroke="#102C49"
           strokeWidth="3.8"
           strokeLinecap="round"
         />
         <path
           d="M11.5 38.2L15.1 43L19.9 39.4"
-          stroke="#FFFFFF"
+          stroke="#102C49"
           strokeWidth="3.4"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -44,8 +44,8 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', lightText = f
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <path d="M32 43V27" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
-        <path d="M32 33.5C32 27.6 36.8 23.2 42.8 23.2C42.8 29.1 38 33.5 32 33.5Z" fill="#52B788" />
+        <path d="M32 43V27" stroke="#102C49" strokeWidth="3" strokeLinecap="round" />
+        <path d="M32 33.5C32 27.6 36.8 23.2 42.8 23.2C42.8 29.1 38 33.5 32 33.5Z" fill="#1E7E48" />
         <path d="M32 36.8C32 31.6 28 27.8 22.8 27.8C22.8 33 26.8 36.8 32 36.8Z" fill="#F28C28" />
       </svg>
       <span
@@ -53,7 +53,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', lightText = f
           lightText ? 'text-white' : 'text-[#102C49]'
         }`}
       >
-        Poli<span className="text-[#F28C28]">Circular</span>
+        Poli<span className="text-[#FFA94D]">Circular</span>
       </span>
     </span>
   );

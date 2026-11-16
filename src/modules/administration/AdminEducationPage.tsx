@@ -55,17 +55,21 @@ export const AdminEducationPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">Gestión educativa</h1>
-        <p className="text-sm text-slate-600">
+        <h1 className="font-display text-2xl font-bold text-white">Gestión educativa</h1>
+        <p className="text-sm text-slate-300">
           Registra establecimientos educacionales, asigna distintivos circulares y valida responsables institucionales.
         </p>
       </div>
 
-      {error && <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{error}</div>}
+      {error && (
+        <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
+          {error}
+        </div>
+      )}
 
       <form
         onSubmit={handleCreate}
-        className="rounded-2xl bg-white border border-slate-200 p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4"
+        className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4"
       >
         <input
           type="text"
@@ -73,14 +77,14 @@ export const AdminEducationPage: React.FC = () => {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Nombre del establecimiento"
-          className="rounded-xl border border-slate-300 px-3 py-2 text-xs"
+          className="rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
         />
         <input
           type="text"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="RBD o código institucional"
-          className="rounded-xl border border-slate-300 px-3 py-2 text-xs"
+          className="rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
         />
         <input
           type="text"
@@ -88,12 +92,12 @@ export const AdminEducationPage: React.FC = () => {
           value={responsible}
           onChange={(e) => setResponsible(e.target.value)}
           placeholder="Docente / responsable adulto"
-          className="rounded-xl border border-slate-300 px-3 py-2 text-xs"
+          className="rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
         />
         <select
           value={communeId}
           onChange={(e) => setCommuneId(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-xs bg-white"
+          className="rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
         >
           {communes.map((c) => (
             <option key={c.id} value={c.id}>
@@ -104,7 +108,7 @@ export const AdminEducationPage: React.FC = () => {
         <select
           value={badge}
           onChange={(e) => setBadge(e.target.value as InstitutionBadge)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-xs bg-white"
+          className="rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
         >
           {Object.entries(INSTITUTION_BADGE_LABELS).map(([k, label]) => (
             <option key={k} value={k}>
@@ -114,26 +118,26 @@ export const AdminEducationPage: React.FC = () => {
         </select>
         <button
           type="submit"
-          className="rounded-xl bg-[#102C49] text-white text-xs font-semibold py-2 px-4"
+          className="rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold py-2 px-4 hover:bg-[#FFA242]"
         >
           Registrar establecimiento
         </button>
       </form>
 
-      <div className="rounded-2xl bg-white border border-slate-200 divide-y divide-slate-100">
+      <div className="rounded-2xl bg-[#102C49] border border-[#244B73] divide-y divide-[#244B73]">
         {institutions.length === 0 ? (
-          <p className="p-6 text-xs text-slate-500">Sin establecimientos registrados aún.</p>
+          <p className="p-6 text-xs text-slate-300">Sin establecimientos registrados aún.</p>
         ) : (
           institutions.map((inst) => (
             <div key={inst.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div>
-                <h2 className="font-display font-bold text-sm text-[#102C49]">{inst.name}</h2>
-                <p className="text-slate-600">
+                <h2 className="font-display font-bold text-sm text-white">{inst.name}</h2>
+                <p className="text-slate-300">
                   Responsable: {inst.responsible_name} · {inst.communes?.name || '—'} ·{' '}
                   {inst.institution_code || 'Sin código'}
                 </p>
               </div>
-              <span className="font-semibold text-[#1E7E48]">
+              <span className="font-semibold text-[#6EE7B7]">
                 {INSTITUTION_BADGE_LABELS[inst.badge_level]}
               </span>
             </div>

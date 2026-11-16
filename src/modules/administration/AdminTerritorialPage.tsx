@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { listAllCommunes, listSectorsByCommune } from '../../services/territorialService';
 import { saveCommuneAdmin, saveSectorAdmin } from '../../services/adminService';
+import { ensureInitialTerritorialSeed } from '../../services/seedService';
 import type { Commune, Sector } from '../../types/domain';
 
 export const AdminTerritorialPage: React.FC = () => {
@@ -102,61 +103,83 @@ export const AdminTerritorialPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">Gestión territorial</h1>
-        <p className="text-sm text-slate-600">
-          Administra comunas activas de Chiloé y Chile y define sectores validados localmente sin inventar límites geográficos.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-white">Gestión territorial</h1>
+          <p className="text-sm text-slate-300">
+            Administra comunas activas de Chiloé y Chile y define sectores validados localmente sin inventar límites geográficos.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={async () => {
+            setError(null);
+            try {
+              await ensureInitialTerritorialSeed(true);
+              await loadCommunes();
+              await loadSectors();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'No fue posible cargar el catálogo base.');
+            }
+          }}
+          className="px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454] self-start"
+        >
+          Sincronizar semilla Castro y categorías
+        </button>
       </div>
 
-      {error && <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{error}</div>}
+      {error && (
+        <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
+          {error}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Comunas */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-          <h2 className="font-display font-bold text-base text-[#102C49]">Comunas</h2>
+        <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+          <h2 className="font-display font-bold text-base text-white">Comunas</h2>
           <form onSubmit={handleAddCommune} className="flex gap-2">
             <input
               type="text"
               value={newCommuneName}
               onChange={(e) => setNewCommuneName(e.target.value)}
               placeholder="Nueva comuna..."
-              className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs"
+              className="flex-1 rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
             />
             <input
               type="text"
               value={newCommuneRegion}
               onChange={(e) => setNewCommuneRegion(e.target.value)}
               placeholder="Región"
-              className="w-32 rounded-xl border border-slate-300 px-3 py-2 text-xs"
+              className="w-32 rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
             />
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl bg-[#102C49] text-white text-xs font-semibold"
+              className="px-4 py-2 rounded-xl bg-white text-[#102C49] text-xs font-semibold hover:bg-slate-100"
             >
               Agregar
             </button>
           </form>
 
-          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-[#244B73] max-h-96 overflow-y-auto">
             {communes.map((c) => (
               <div key={c.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
                 <button
                   type="button"
                   onClick={() => setSelectedCommuneId(c.id)}
                   className={`text-left font-semibold ${
-                    selectedCommuneId === c.id ? 'text-[#F28C28]' : 'text-[#102C49]'
+                    selectedCommuneId === c.id ? 'text-[#FFA94D]' : 'text-white'
                   }`}
                 >
-                  {c.name} <span className="font-normal text-slate-500">({c.region})</span>
+                  {c.name} <span className="font-normal text-slate-300">({c.region})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleToggleCommune(c)}
                   className={`px-3 py-1 rounded-lg font-semibold ${
                     c.is_active
-                      ? 'bg-[#E6F4EA] text-[#1E7E48]'
-                      : 'bg-slate-100 text-slate-600'
+                      ? 'bg-[#143D29] border border-[#34D399]/35 text-[#6EE7B7]'
+                      : 'bg-[#0B1E33] border border-[#244B73] text-slate-300'
                   }`}
                 >
                   {c.is_active ? 'Activa' : 'Inactiva'}
@@ -167,8 +190,8 @@ export const AdminTerritorialPage: React.FC = () => {
         </section>
 
         {/* Sectores de la comuna seleccionada */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-4">
-          <h2 className="font-display font-bold text-base text-[#102C49]">
+        <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+          <h2 className="font-display font-bold text-base text-white">
             Sectores administrables ({communes.find((c) => c.id === selectedCommuneId)?.name || '—'})
           </h2>
           <form onSubmit={handleAddSector} className="space-y-2">
@@ -178,11 +201,11 @@ export const AdminTerritorialPage: React.FC = () => {
                 value={newSectorName}
                 onChange={(e) => setNewSectorName(e.target.value)}
                 placeholder="Nombre del sector validado..."
-                className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                className="flex-1 rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
               />
               <button
                 type="submit"
-                className="px-4 py-2 rounded-xl bg-[#F28C28] text-white text-xs font-semibold"
+                className="px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
               >
                 Crear sector
               </button>
@@ -192,27 +215,27 @@ export const AdminTerritorialPage: React.FC = () => {
               value={newSectorDesc}
               onChange={(e) => setNewSectorDesc(e.target.value)}
               placeholder="Referencia breve (opcional)"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+              className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs focus:border-[#FFA94D] focus:outline-none"
             />
           </form>
 
-          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-[#244B73] max-h-96 overflow-y-auto">
             {sectors.length === 0 ? (
-              <p className="text-xs text-slate-500 py-4">Sin sectores registrados en esta comuna.</p>
+              <p className="text-xs text-slate-300 py-4">Sin sectores registrados en esta comuna.</p>
             ) : (
               sectors.map((s) => (
                 <div key={s.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
                   <div>
-                    <div className="font-semibold text-[#102C49]">{s.name}</div>
-                    {s.description && <div className="text-slate-500">{s.description}</div>}
+                    <div className="font-semibold text-white">{s.name}</div>
+                    {s.description && <div className="text-slate-300">{s.description}</div>}
                   </div>
                   <button
                     type="button"
                     onClick={() => handleToggleSector(s)}
                     className={`px-3 py-1 rounded-lg font-semibold ${
                       s.is_active
-                        ? 'bg-[#E6F4EA] text-[#1E7E48]'
-                        : 'bg-slate-100 text-slate-600'
+                        ? 'bg-[#143D29] border border-[#34D399]/35 text-[#6EE7B7]'
+                        : 'bg-[#0B1E33] border border-[#244B73] text-slate-300'
                     }`}
                   >
                     {s.is_active ? 'Activo' : 'Desactivado'}

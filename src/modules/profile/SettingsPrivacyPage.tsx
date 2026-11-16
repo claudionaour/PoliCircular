@@ -27,59 +27,59 @@ export const SettingsPrivacyPage: React.FC = () => {
   return (
     <div className="max-w-3xl space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">Configuración y privacidad</h1>
-        <p className="text-sm text-slate-600">
+        <h1 className="font-display text-2xl font-bold text-white">Configuración y privacidad</h1>
+        <p className="text-sm text-slate-200">
           Gestiona la seguridad de tu cuenta, instalación móvil y preferencias de privacidad.
         </p>
       </div>
 
-      <section className="rounded-2xl bg-white border border-slate-200 p-6 space-y-3">
-        <div className="flex items-center gap-2 font-display font-bold text-[#102C49]">
-          <Lock className="h-5 w-5 text-[#1E7E48]" />
+      <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-3">
+        <div className="flex items-center gap-2 font-display font-bold text-white">
+          <Lock className="h-5 w-5 text-[#6EE7B7]" />
           <h2>Protección de datos y ubicación</h2>
         </div>
-        <p className="text-sm text-slate-600 leading-relaxed">
-          Tus datos privados (correo, teléfono y domicilio exacto) no se comparten en el catálogo público. Los mapas solo muestran un radio aproximado de tu sector y las conversaciones privadas están protegidas por RLS.
+        <p className="text-sm text-slate-200 leading-relaxed">
+          Tus datos privados (correo, teléfono y domicilio exacto) no se comparten en el catálogo público. Los mapas solo muestran un radio aproximado de tu sector y las conversaciones privadas están protegidas por Reglas de Seguridad de Firebase.
         </p>
-        <Link to="/reglas-comunitarias" className="inline-block text-xs font-semibold text-[#F28C28] hover:underline">
+        <Link to="/reglas-comunitarias" className="inline-block text-xs font-semibold text-[#FFA94D] hover:underline">
           Consultar términos de uso, privacidad y reglas comunitarias
         </Link>
       </section>
 
-      <section className="rounded-2xl bg-white border border-slate-200 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 font-display font-bold text-[#102C49]">
-            <Smartphone className="h-5 w-5 text-[#F28C28]" />
+          <div className="flex items-center gap-2 font-display font-bold text-white">
+            <Smartphone className="h-5 w-5 text-[#FFA94D]" />
             <h2>Aplicación instalable (PWA)</h2>
           </div>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-200">
             Instala PoliCircular en tu teléfono Android, iPhone o escritorio para acceso rápido.
           </p>
         </div>
         <PWAInstallButton />
       </section>
 
-      <section className="rounded-2xl bg-white border border-slate-200 p-6 flex items-center justify-between gap-4">
+      <section className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-display font-bold text-sm text-[#102C49]">Sesión activa</h2>
-          <p className="text-xs text-slate-600">Cierra sesión en este dispositivo de forma segura.</p>
+          <h2 className="font-display font-bold text-sm text-white">Sesión activa</h2>
+          <p className="text-xs text-slate-200">Cierra sesión en este dispositivo de forma segura.</p>
         </div>
         <button
           type="button"
           onClick={() => signOut()}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-[#102C49] hover:bg-[#F4F6F8]"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-sm font-semibold text-white hover:bg-[#163B61]"
         >
           <LogOut className="h-4 w-4" />
           <span>Cerrar sesión</span>
         </button>
       </section>
 
-      <section className="rounded-2xl bg-white border border-red-200 p-6 space-y-4">
-        <div className="flex items-center gap-2 font-display font-bold text-red-800">
+      <section className="rounded-2xl bg-[#102C49] border border-red-400/40 p-6 space-y-4">
+        <div className="flex items-center gap-2 font-display font-bold text-red-200">
           <AlertTriangle className="h-5 w-5" />
           <h2>Eliminación de cuenta</h2>
         </div>
-        <p className="text-xs text-slate-600 leading-relaxed">
+        <p className="text-xs text-slate-200 leading-relaxed">
           Al eliminar tu cuenta, tus datos de contacto privado se borran, tus publicaciones activas se archivan y tu perfil público se anonimiza conservando el historial íntegro de operaciones ambientales ya finalizadas.
         </p>
 
@@ -87,30 +87,30 @@ export const SettingsPrivacyPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-400/50 bg-red-950/60 text-red-200 text-xs font-semibold hover:bg-red-900/60"
           >
             <Trash2 className="h-4 w-4" />
             <span>Solicitar eliminación de cuenta</span>
           </button>
         ) : (
-          <div className="rounded-xl bg-red-50 p-4 space-y-3">
-            <p className="text-xs font-semibold text-red-900">
+          <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-4 space-y-3">
+            <p className="text-xs font-semibold text-red-100">
               ¿Confirmas que deseas dar de baja tu cuenta de PoliCircular? Esta acción no se puede deshacer.
             </p>
-            {error && <p className="text-xs text-red-700">{error}</p>}
+            {error && <p className="text-xs text-red-200">{error}</p>}
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={handleDeleteAccount}
                 disabled={deleting}
-                className="px-4 py-2 rounded-xl bg-red-700 text-white text-xs font-semibold hover:bg-red-800 disabled:opacity-50"
+                className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? 'Procesando...' : 'Sí, eliminar mi cuenta'}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="px-4 py-2 rounded-xl bg-white border border-slate-300 text-xs font-semibold text-slate-700"
+                className="px-4 py-2 rounded-xl bg-[#0B1E33] border border-[#3B648F] text-xs font-semibold text-white"
               >
                 Cancelar
               </button>

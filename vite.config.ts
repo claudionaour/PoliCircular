@@ -51,7 +51,7 @@ export default defineConfig(() => {
         workbox: {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          // Nunca almacenar respuestas autenticadas privadas de Supabase en caché pública
+          // Nunca almacenar respuestas autenticadas privadas en caché pública
           navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
             {

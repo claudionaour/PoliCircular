@@ -24,7 +24,7 @@ export const AdminDashboardPage: React.FC = () => {
   }, []);
 
   if (loading || !stats) {
-    return <div className="p-6 text-sm text-slate-500">Cargando métricas administrativas...</div>;
+    return <div className="p-6 text-sm text-slate-300">Cargando métricas administrativas...</div>;
   }
 
   const cards = [
@@ -41,21 +41,21 @@ export const AdminDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-[#102C49]">Panel de Administración</h1>
-        <p className="text-sm text-slate-600">
+        <h1 className="font-display text-2xl font-bold text-white">Panel de Administración</h1>
+        <p className="text-sm text-slate-300">
           Supervisión operativa, moderación previa obligatoria, territorio e indicadores ambientales.
         </p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((c) => (
-          <div key={c.label} className="rounded-2xl bg-white border border-slate-200 p-5 space-y-2">
-            <span className="text-xs text-slate-500 block">{c.label}</span>
-            <span className="font-mono text-2xl font-bold text-[#102C49] tabular-nums block">
+          <div key={c.label} className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5 space-y-2">
+            <span className="text-xs text-slate-300 block">{c.label}</span>
+            <span className="font-mono text-2xl font-bold text-white tabular-nums block">
               {c.value}
             </span>
             {c.link && (
-              <Link to={c.link} className="inline-block text-xs font-semibold text-[#F28C28] hover:underline">
+              <Link to={c.link} className="inline-block text-xs font-semibold text-[#FFA94D] hover:underline">
                 Gestionar
               </Link>
             )}
@@ -64,15 +64,15 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <p className="text-xs font-semibold text-[#1E7E48]">PESO MEDIDO ACUMULADO</p>
-          <p className="font-mono text-2xl font-bold text-[#102C49] tabular-nums mt-1">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <p className="text-xs font-semibold text-[#6EE7B7]">PESO MEDIDO ACUMULADO</p>
+          <p className="font-mono text-2xl font-bold text-white tabular-nums mt-1">
             {impactWeight.measured.toFixed(2)} kg
           </p>
         </div>
-        <div className="rounded-2xl bg-white border border-slate-200 p-5">
-          <p className="text-xs font-semibold text-[#102C49]">PESO ESTIMADO REFERENCIAL</p>
-          <p className="font-mono text-2xl font-bold text-[#102C49] tabular-nums mt-1">
+        <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-5">
+          <p className="text-xs font-semibold text-[#FFA94D]">PESO ESTIMADO REFERENCIAL</p>
+          <p className="font-mono text-2xl font-bold text-white tabular-nums mt-1">
             {impactWeight.estimated.toFixed(2)} kg
           </p>
         </div>

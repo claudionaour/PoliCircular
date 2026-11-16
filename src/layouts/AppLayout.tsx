@@ -49,10 +49,10 @@ export const AppLayout: React.FC = () => {
   const { unreadCount } = useNotifications();
 
   return (
-    <div className="min-h-screen bg-[#F4F6F8] text-[#102C49] flex flex-col md:flex-row">
+    <div className="min-h-screen bg-[#0B1E33] text-white flex flex-col md:flex-row">
       {/* Navegación lateral escritorio */}
-      <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 bg-white border-r border-slate-200 z-30">
-        <div className="h-16 px-5 flex items-center border-b border-slate-200">
+      <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 bg-[#102C49] border-r border-[#244B73] z-30">
+        <div className="h-16 px-5 flex items-center border-b border-[#244B73]">
           <Link to="/inicio">
             <BrandLogo size="md" />
           </Link>
@@ -68,8 +68,8 @@ export const AppLayout: React.FC = () => {
                 className={({ isActive }) =>
                   `flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
                     isActive
-                      ? 'bg-[#102C49] text-white'
-                      : 'text-slate-700 hover:bg-[#F4F6F8] hover:text-[#102C49]'
+                      ? 'bg-[#F28C28] text-[#0B1E33] font-bold'
+                      : 'text-slate-200 hover:bg-[#163B61] hover:text-white'
                   }`
                 }
               >
@@ -78,7 +78,7 @@ export const AppLayout: React.FC = () => {
                   <span>{item.label}</span>
                 </span>
                 {item.to === '/notificaciones' && unreadCount > 0 && (
-                  <span className="font-mono text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-[#F28C28] text-white">
+                  <span className="font-mono text-xs font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-white text-[#102C49]">
                     {unreadCount}
                   </span>
                 )}
@@ -87,25 +87,25 @@ export const AppLayout: React.FC = () => {
           })}
 
           {isModerator && (
-            <div className="pt-4 mt-4 border-t border-slate-200">
+            <div className="pt-4 mt-4 border-t border-[#244B73]">
               <Link
                 to="/admin"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-[#102C49] bg-[#F4F6F8] hover:bg-slate-200 transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#0B1E33] border border-[#244B73] hover:bg-[#163B61] transition-colors"
               >
-                <Shield className="h-4 w-4 text-[#F28C28]" />
+                <Shield className="h-4 w-4 text-[#FFA94D]" />
                 <span>Panel Administrativo</span>
               </Link>
             </div>
           )}
         </nav>
 
-        <div className="p-4 border-t border-slate-200 space-y-3">
+        <div className="p-4 border-t border-[#244B73] space-y-3">
           <PWAInstallButton />
         </div>
       </aside>
 
       {/* Cabecera móvil compacta (<= 48px) */}
-      <header className="md:hidden sticky top-0 z-30 h-12 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 flex items-center justify-between">
+      <header className="md:hidden sticky top-0 z-30 h-12 bg-[#102C49]/95 backdrop-blur-md border-b border-[#244B73] px-4 flex items-center justify-between">
         <Link to="/inicio" className="shrink-0">
           <BrandLogo size="sm" />
         </Link>
@@ -113,12 +113,12 @@ export const AppLayout: React.FC = () => {
           <PWAInstallButton compact />
           <Link
             to="/notificaciones"
-            className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-[#102C49] hover:bg-[#F4F6F8]"
+            className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-white hover:bg-[#163B61]"
             aria-label="Notificaciones"
           >
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 h-4 min-w-[16px] px-1 rounded-full bg-[#F28C28] text-[10px] font-bold text-white flex items-center justify-center tabular-nums">
+              <span className="absolute top-1.5 right-1.5 h-4 min-w-[16px] px-1 rounded-full bg-[#F28C28] text-[10px] font-bold text-[#0B1E33] flex items-center justify-center tabular-nums">
                 {unreadCount}
               </span>
             )}
@@ -127,16 +127,19 @@ export const AppLayout: React.FC = () => {
       </header>
 
       {/* Contenido principal */}
-      <main className="flex-1 md:pl-64 pb-20 md:pb-8">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+      <main className="flex-1 md:pl-64 pb-20 md:pb-8 flex flex-col">
+        <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 flex-1">
           <Outlet />
         </div>
+        <footer className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-4 pb-2 border-t border-[#244B73]/60 text-xs text-slate-300">
+          Nacida en Castro, Archipiélago de Chiloé, Chile. Creada por Trinidad Naour Cheuquepil, Maithe Caro, Byron Care, Alumnos del Liceo Politécnico de Castro. Profesora: Katty Arenas.
+        </footer>
       </main>
 
       {/* Barra inferior móvil (5 accesos principales; administración fuera del menú normal) */}
       <nav
         aria-label="Navegación principal móvil"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 pb-safe"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#102C49]/95 backdrop-blur-md border-t border-[#244B73] pb-safe"
       >
         <div className="grid grid-cols-5 h-14 items-center">
           {MOBILE_BOTTOM_TABS.map((tab) => {
@@ -147,7 +150,7 @@ export const AppLayout: React.FC = () => {
                 to={tab.to}
                 className={({ isActive }) =>
                   `flex flex-col items-center justify-center min-h-[44px] text-[11px] font-medium transition-colors ${
-                    isActive ? 'text-[#F28C28]' : 'text-slate-600 hover:text-[#102C49]'
+                    isActive ? 'text-[#FFA94D] font-bold' : 'text-slate-300 hover:text-white'
                   }`
                 }
               >
