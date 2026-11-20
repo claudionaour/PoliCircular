@@ -207,79 +207,223 @@ export async function proposeExchangeDelivery(params: {
   }
 }
 
+const ALLOWED_EXCHANGE_KEYS = new Set([
+  'id',
+  'match_id',
+  'owner_id',
+  'requester_id',
+  'status',
+  'proposed_date',
+  'proposed_time_slot',
+  'meeting_point_label',
+  'meeting_point_lat',
+  'meeting_point_lng',
+  'proposed_by',
+  'cancelled_by',
+  'cancellation_reason',
+  'completed_at',
+  'created_at',
+  'updated_at',
+]);
+
+function classifyFirestoreFailure(error: unknown): {
+  category: 'FIRESTORE_RULES_PERMISSION_DENIED' | 'TRANSACTION_STATE_ERROR' | 'UNKNOWN_ERROR';
+  code: string | null;
+  message: string;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : null;
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (
+    code === 'permission-denied' ||
+    message.includes('permission-denied') ||
+    message.includes('Missing or insufficient permissions')
+  ) {
+    return {
+      category: 'FIRESTORE_RULES_PERMISSION_DENIED',
+      code: code ?? 'permission-denied',
+      message,
+    };
+  }
+
+  if (
+    code === 'failed-precondition' ||
+    code === 'aborted' ||
+    code === 'not-found' ||
+    code === 'already-exists' ||
+    message.includes('Intercambio no encontrado') ||
+    message.includes('No perteneces')
+  ) {
+    return {
+      category: 'TRANSACTION_STATE_ERROR',
+      code: code ?? 'state-error',
+      message,
+    };
+  }
+
+  return {
+    category: 'UNKNOWN_ERROR',
+    code,
+    message,
+  };
+}
+
 export async function confirmExchangeDeliveryRpc(params: {
   exchangeId: string;
   notes?: string;
   measuredWeightKg?: number | null;
 }): Promise<ExchangeRecord> {
+  const debugTrace: Record<string, unknown> = {
+    exchangeId: params.exchangeId,
+    enableCloudFunctions: ENABLE_CLOUD_FUNCTIONS,
+    uid: auth.currentUser?.uid ?? null,
+    emailVerified: auth.currentUser?.emailVerified ?? null,
+    providers: auth.currentUser?.providerData.map((p) => p.providerId) ?? [],
+  };
+
+  console.info('[ConfirmDeliveryDebug] 1.auth_context', debugTrace);
+
   if (ENABLE_CLOUD_FUNCTIONS) {
-    const fn = httpsCallable(functions, 'confirmExchangeDelivery');
-    await fn(params);
-    const snap = await getDoc(doc(db, 'exchanges', params.exchangeId));
-    const d = snap.data() ?? {};
-    return {
-      id: snap.id,
-      match_id: String(d.match_id || ''),
-      status: (d.status as ExchangeRecord['status']) || 'completed',
-      proposed_date: d.proposed_date ? String(d.proposed_date) : null,
-      proposed_time_slot: d.proposed_time_slot ? String(d.proposed_time_slot) : null,
-      meeting_point_label: d.meeting_point_label ? String(d.meeting_point_label) : null,
-      meeting_point_lat: typeof d.meeting_point_lat === 'number' ? d.meeting_point_lat : null,
-      meeting_point_lng: typeof d.meeting_point_lng === 'number' ? d.meeting_point_lng : null,
-      proposed_by: d.proposed_by ? String(d.proposed_by) : null,
-      cancelled_by: d.cancelled_by ? String(d.cancelled_by) : null,
-      cancellation_reason: d.cancellation_reason ? String(d.cancellation_reason) : null,
-      completed_at: toNullableIsoString(d.completed_at),
-      created_at: toIsoString(d.created_at),
-    };
+    try {
+      const fn = httpsCallable(functions, 'confirmExchangeDelivery');
+      await fn(params);
+      const snap = await getDoc(doc(db, 'exchanges', params.exchangeId));
+      const d = snap.data() ?? {};
+      console.info('[ConfirmDeliveryDebug] cloud_function_completed', {
+        exchangeId: params.exchangeId,
+        status: d.status,
+      });
+      return {
+        id: snap.id,
+        match_id: String(d.match_id || ''),
+        status: (d.status as ExchangeRecord['status']) || 'completed',
+        proposed_date: d.proposed_date ? String(d.proposed_date) : null,
+        proposed_time_slot: d.proposed_time_slot ? String(d.proposed_time_slot) : null,
+        meeting_point_label: d.meeting_point_label ? String(d.meeting_point_label) : null,
+        meeting_point_lat: typeof d.meeting_point_lat === 'number' ? d.meeting_point_lat : null,
+        meeting_point_lng: typeof d.meeting_point_lng === 'number' ? d.meeting_point_lng : null,
+        proposed_by: d.proposed_by ? String(d.proposed_by) : null,
+        cancelled_by: d.cancelled_by ? String(d.cancelled_by) : null,
+        cancellation_reason: d.cancellation_reason ? String(d.cancellation_reason) : null,
+        completed_at: toNullableIsoString(d.completed_at),
+        created_at: toIsoString(d.created_at),
+      };
+    } catch (error) {
+      console.error('[ConfirmDeliveryDebug] cloud_function_failed', classifyFirestoreFailure(error));
+      throw error;
+    }
   }
 
   const currentUid = auth.currentUser?.uid;
-  if (!currentUid) throw new Error('Debes iniciar sesión.');
+  if (!currentUid) {
+    console.error('[ConfirmDeliveryDebug] auth_missing', debugTrace);
+    throw new Error('Debes iniciar sesión.');
+  }
 
   const exchangeRef = doc(db, 'exchanges', params.exchangeId);
+  const myConfId = `${params.exchangeId}_${currentUid}`;
+  const myConfRef = doc(db, 'exchange_confirmations', myConfId);
+
+  let activeStage = 'tx_core_read_exchange';
+  let activePath = `exchanges/${params.exchangeId}`;
+  let lastExchangeSnapshot: Record<string, unknown> | null = null;
+  let lastConfirmationSnapshot: Record<string, unknown> | null = null;
 
   try {
-    // FASE 1: Confirmación y cierre atómico principal (mínimas lecturas y sin bloqueo por campos opcionales)
+    // FASE 1: Confirmación y cierre atómico principal (solo exchanges + exchange_confirmations)
+    // Se aíslan matches y products fuera de la transacción núcleo para evitar que un producto
+    // archivado/incompleto o un match ya cerrado aborte la confirmación del usuario.
     const txContext = await runTransaction(db, async (tx) => {
+      activeStage = 'tx_core_read_exchange';
+      activePath = `exchanges/${params.exchangeId}`;
       const exSnap = await tx.get(exchangeRef);
-      if (!exSnap.exists()) throw new Error('Intercambio no encontrado.');
+
+      if (!exSnap.exists()) {
+        console.error('[ConfirmDeliveryDebug] 2.exchange_not_found', {
+          exchangeId: params.exchangeId,
+          currentUid,
+        });
+        throw new Error('Intercambio no encontrado.');
+      }
+
       const ex = exSnap.data();
+      const exKeys = Object.keys(ex);
+      const unexpectedKeys = exKeys.filter((k) => !ALLOWED_EXCHANGE_KEYS.has(k));
+      const missingRequiredKeys = ['id', 'match_id', 'owner_id', 'requester_id', 'status', 'created_at'].filter(
+        (k) => !(k in ex) || ex[k] === undefined || ex[k] === null
+      );
 
       const ownerId = String(ex.owner_id || '');
       const requesterId = String(ex.requester_id || '');
+      const matchId = String(ex.match_id || '').trim();
+
+      lastExchangeSnapshot = {
+        docId: exSnap.id,
+        dataId: ex.id ?? null,
+        idMatchesDocId: ex.id === exSnap.id,
+        status: ex.status ?? null,
+        ownerId,
+        requesterId,
+        currentUid,
+        isOwner: ownerId === currentUid,
+        isRequester: requesterId === currentUid,
+        matchId,
+        hasCreatedAt: Boolean(ex.created_at),
+        unexpectedKeys,
+        missingRequiredKeys,
+      };
+
+      console.info('[ConfirmDeliveryDebug] 2.pre_read_exchange', lastExchangeSnapshot);
+
       if (ownerId !== currentUid && requesterId !== currentUid) {
         throw new Error('No perteneces a este intercambio.');
       }
-      if (['completed', 'cancelled'].includes(ex.status)) {
+
+      if (['completed', 'cancelled'].includes(String(ex.status || ''))) {
+        console.info('[ConfirmDeliveryDebug] 2b.exchange_already_closed', lastExchangeSnapshot);
         return {
           alreadyClosed: true,
           status: ex.status as ExchangeRecord['status'],
           ownerId,
           requesterId,
           otherUid: ownerId === currentUid ? requesterId : ownerId,
-          isGift: true,
-          qtyReserved: 1,
-          productData: null as Record<string, unknown> | null,
-          productId: '',
+          matchId,
         };
       }
 
-      const myConfId = `${params.exchangeId}_${currentUid}`;
-      const myConfRef = doc(db, 'exchange_confirmations', myConfId);
+      activeStage = 'tx_core_read_confirmation';
+      activePath = `exchange_confirmations/${myConfId}`;
       const myConfSnap = await tx.get(myConfRef);
 
-      const matchId = String(ex.match_id || '').trim();
-      const matchRef = matchId ? doc(db, 'matches', matchId) : null;
-      const matchSnap = matchRef ? await tx.get(matchRef) : null;
-      const match = matchSnap?.exists() ? matchSnap.data() : null;
+      lastConfirmationSnapshot = {
+        myConfId,
+        myConfIdLength: myConfId.length,
+        exists: myConfSnap.exists(),
+      };
+      console.info('[ConfirmDeliveryDebug] 3.pre_read_confirmation', lastConfirmationSnapshot);
 
-      const productId = String(match?.target_product_id || '').trim();
-      const productRef = productId ? doc(db, 'products', productId) : null;
-      const productSnap = productRef ? await tx.get(productRef) : null;
-      const product = productSnap?.exists() ? productSnap.data() : null;
+      if (unexpectedKeys.length > 0 || missingRequiredKeys.length > 0 || ex.id !== exSnap.id) {
+        console.warn('[ConfirmDeliveryDebug] 3b.schema_warning_on_exchange', {
+          unexpectedKeys,
+          missingRequiredKeys,
+          idMatches: ex.id === exSnap.id,
+          hint: 'Si Firestore devuelve permission-denied, revisa isValidExchange en firestore.rules frente a estos campos.',
+        });
+      }
 
       if (!myConfSnap.exists()) {
+        activeStage = 'tx_core_write_confirmation';
+        activePath = `exchange_confirmations/${myConfId}`;
+        console.info('[ConfirmDeliveryDebug] 4a.tx_set_confirmation', {
+          path: activePath,
+          exchangeId: params.exchangeId,
+          userId: currentUid,
+          ownerId,
+          requesterId,
+        });
         tx.set(myConfRef, {
           id: myConfId,
           exchange_id: params.exchangeId,
@@ -295,41 +439,18 @@ export async function confirmExchangeDeliveryRpc(params: {
         });
       }
 
+      activeStage = 'tx_core_write_exchange';
+      activePath = `exchanges/${params.exchangeId}`;
+      console.info('[ConfirmDeliveryDebug] 4b.tx_update_exchange', {
+        path: activePath,
+        prevStatus: ex.status,
+        nextStatus: 'completed',
+      });
       tx.update(exchangeRef, {
         status: 'completed',
         completed_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       });
-
-      if (matchRef && match && match.status === 'active') {
-        tx.update(matchRef, {
-          status: 'completed',
-          updated_at: serverTimestamp(),
-        });
-      }
-
-      const qtyReserved = Math.max(1, Math.round(Number(match?.quantity_reserved ?? 1) || 1));
-      if (productRef && product && product.status !== 'completed') {
-        const prevAvail = Math.max(0, Math.round(Number(product.available_quantity ?? 0)));
-        const prevTotal = Math.max(1, Math.round(Number(product.total_quantity ?? prevAvail + qtyReserved)));
-        const nextReserved = Math.max(
-          0,
-          Math.min(prevTotal - prevAvail, Math.round(Number(product.reserved_quantity ?? 0)) - qtyReserved)
-        );
-        const nextProdStatus =
-          prevAvail === 0 && nextReserved === 0
-            ? 'completed'
-            : nextReserved > 0
-              ? 'reserved'
-              : 'approved';
-
-        tx.update(productRef, {
-          reserved_quantity: nextReserved,
-          status: nextProdStatus,
-          sync_exchange_id: params.exchangeId,
-          updated_at: serverTimestamp(),
-        });
-      }
 
       return {
         alreadyClosed: false,
@@ -337,14 +458,114 @@ export async function confirmExchangeDeliveryRpc(params: {
         ownerId,
         requesterId,
         otherUid: ownerId === currentUid ? requesterId : ownerId,
-        isGift: match ? match.modality !== 'exchange' : true,
-        qtyReserved,
-        productData: product ?? null,
-        productId,
+        matchId,
       };
     });
 
-    // FASE 2: Efectos posteriores no bloqueantes (Árbol Circular, Logros, Impacto y Notificación)
+    console.info('[ConfirmDeliveryDebug] 4c.tx_core_commit_ok', {
+      exchangeId: params.exchangeId,
+      alreadyClosed: txContext.alreadyClosed,
+      status: txContext.status,
+    });
+
+    // FASE 2: Sincronización de Match y Stock de Producto (aislada, con logs independientes)
+    let isGift = true;
+    let qtyReserved = 1;
+    let productId = '';
+    let productData: Record<string, unknown> | null = null;
+
+    if (txContext.matchId) {
+      try {
+        activeStage = 'post_match_sync';
+        activePath = `matches/${txContext.matchId}`;
+        const matchRef = doc(db, 'matches', txContext.matchId);
+        const matchSnap = await getDoc(matchRef);
+        if (matchSnap.exists()) {
+          const match = matchSnap.data();
+          isGift = match.modality !== 'exchange';
+          qtyReserved = Math.max(1, Math.round(Number(match.quantity_reserved ?? 1) || 1));
+          productId = String(match.target_product_id || '').trim();
+
+          console.info('[ConfirmDeliveryDebug] 5a.post_match_read', {
+            matchId: txContext.matchId,
+            status: match.status,
+            modality: match.modality,
+            qtyReserved,
+            productId,
+          });
+
+          if (!txContext.alreadyClosed && match.status === 'active') {
+            await updateDoc(matchRef, {
+              status: 'completed',
+              updated_at: serverTimestamp(),
+            });
+            console.info('[ConfirmDeliveryDebug] 5b.post_match_update_ok', {
+              matchId: txContext.matchId,
+            });
+          }
+        }
+      } catch (matchErr) {
+        console.warn('[ConfirmDeliveryDebug] 5c.post_match_sync_failed', {
+          matchId: txContext.matchId,
+          ...classifyFirestoreFailure(matchErr),
+        });
+      }
+    }
+
+    if (productId) {
+      try {
+        activeStage = 'post_product_sync';
+        activePath = `products/${productId}`;
+        const productRef = doc(db, 'products', productId);
+        const productSnap = await getDoc(productRef);
+        if (productSnap.exists()) {
+          const product = productSnap.data();
+          productData = product;
+
+          console.info('[ConfirmDeliveryDebug] 6a.post_product_read', {
+            productId,
+            status: product.status,
+            available_quantity: product.available_quantity,
+            reserved_quantity: product.reserved_quantity,
+            total_quantity: product.total_quantity,
+          });
+
+          if (!txContext.alreadyClosed && product.status !== 'completed') {
+            const prevAvail = Math.max(0, Math.round(Number(product.available_quantity ?? 0)));
+            const prevTotal = Math.max(1, Math.round(Number(product.total_quantity ?? prevAvail + qtyReserved)));
+            const nextReserved = Math.max(
+              0,
+              Math.min(prevTotal - prevAvail, Math.round(Number(product.reserved_quantity ?? 0)) - qtyReserved)
+            );
+            const nextProdStatus =
+              prevAvail === 0 && nextReserved === 0
+                ? 'completed'
+                : nextReserved > 0
+                  ? 'reserved'
+                  : 'approved';
+
+            await updateDoc(productRef, {
+              reserved_quantity: nextReserved,
+              status: nextProdStatus,
+              sync_exchange_id: params.exchangeId,
+              updated_at: serverTimestamp(),
+            });
+            console.info('[ConfirmDeliveryDebug] 6b.post_product_update_ok', {
+              productId,
+              nextReserved,
+              nextProdStatus,
+            });
+          }
+        }
+      } catch (prodErr) {
+        console.warn('[ConfirmDeliveryDebug] 6c.post_product_sync_failed', {
+          productId,
+          ...classifyFirestoreFailure(prodErr),
+        });
+      }
+    }
+
+    // FASE 3: Efectos posteriores no bloqueantes (Árbol Circular, Logros, Impacto y Notificación)
     if (!txContext.alreadyClosed) {
       const participants = Array.from(new Set([txContext.ownerId, txContext.requesterId].filter(Boolean)));
       let achievementDocs: Array<{ id: string; reqOps: number }> = [];
@@ -354,7 +575,8 @@ export async function confirmExchangeDeliveryRpc(params: {
           id: d.id,
           reqOps: Number(d.data().required_operations ?? 1),
         }));
-      } catch {
+      } catch (achListErr) {
+        console.warn('[ConfirmDeliveryDebug] 7a.achievements_list_skipped', classifyFirestoreFailure(achListErr));
         achievementDocs = [];
       }
 
@@ -373,14 +595,15 @@ export async function confirmExchangeDeliveryRpc(params: {
             tx.set(treeRef, {
               user_id: uid,
               completed_operations: ops,
-              completed_gifts: Number(prev.completed_gifts ?? 0) + (txContext.isGift ? 1 : 0),
-              completed_exchanges: Number(prev.completed_exchanges ?? 0) + (txContext.isGift ? 0 : 1),
+              completed_gifts: Number(prev.completed_gifts ?? 0) + (isGift ? 1 : 0),
+              completed_exchanges: Number(prev.completed_exchanges ?? 0) + (isGift ? 0 : 1),
               current_stage: computeTreeStage(ops),
               last_exchange_id: params.exchangeId,
               updated_at: serverTimestamp(),
             });
             return ops;
           });
+          console.info('[ConfirmDeliveryDebug] 7b.post_tree_progress_ok', { uid, nextOps });
 
           for (const ach of achievementDocs) {
             if (nextOps >= ach.reqOps) {
@@ -397,22 +620,29 @@ export async function confirmExchangeDeliveryRpc(params: {
                     unlocked_at: serverTimestamp(),
                   });
                 }
-              } catch {
-                // No bloquea si un logro ya existía
+              } catch (uaErr) {
+                console.warn('[ConfirmDeliveryDebug] 7c.post_achievement_skipped', {
+                  uid,
+                  achievementId: ach.id,
+                  ...classifyFirestoreFailure(uaErr),
+                });
               }
             }
           }
         } catch (err) {
-          console.warn('Actualización secundaria de árbol/logros omitida:', err);
+          console.warn('[ConfirmDeliveryDebug] 7d.post_tree_progress_failed', {
+            uid,
+            ...classifyFirestoreFailure(err),
+          });
         }
       }
 
-      if (txContext.productData) {
+      if (productData) {
         try {
           const impactRef = doc(db, 'impact_records', params.exchangeId);
           const impactSnap = await getDoc(impactRef);
           if (!impactSnap.exists()) {
-            const catId = String(txContext.productData.category_id || '').trim();
+            const catId = String(productData.category_id || '').trim();
             const catSnap = catId ? await getDoc(doc(db, 'categories', catId)).catch(() => null) : null;
             const catWeight = catSnap?.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
             const measured =
@@ -420,24 +650,28 @@ export async function confirmExchangeDeliveryRpc(params: {
                 ? params.measuredWeightKg
                 : 0;
             const totalWeight =
-              measured > 0 ? measured : Number((catWeight * txContext.qtyReserved).toFixed(2));
+              measured > 0 ? measured : Number((catWeight * qtyReserved).toFixed(2));
 
             await setDoc(impactRef, {
               id: params.exchangeId,
               exchange_id: params.exchangeId,
-              product_id: String(txContext.productData.id || txContext.productId || params.exchangeId),
+              product_id: String(productData.id || productId || params.exchangeId),
               category_id: catId || 'otros',
-              commune_id: String(txContext.productData.commune_id || 'castro'),
-              sector_id: txContext.productData.sector_id ? String(txContext.productData.sector_id) : null,
-              modality: txContext.isGift ? 'gift' : 'exchange',
-              quantity: txContext.qtyReserved,
+              commune_id: String(productData.commune_id || 'castro'),
+              sector_id: productData.sector_id ? String(productData.sector_id) : null,
+              modality: isGift ? 'gift' : 'exchange',
+              quantity: qtyReserved,
               weight_kg: totalWeight,
               weight_type: measured > 0 ? 'measured' : 'estimated',
               created_at: serverTimestamp(),
             });
+            console.info('[ConfirmDeliveryDebug] 8a.post_impact_record_ok', {
+              exchangeId: params.exchangeId,
+              totalWeight,
+            });
           }
         } catch (err) {
-          console.warn('Registro de impacto secundario omitido:', err);
+          console.warn('[ConfirmDeliveryDebug] 8b.post_impact_record_failed', classifyFirestoreFailure(err));
         }
       }
 
@@ -454,14 +688,25 @@ export async function confirmExchangeDeliveryRpc(params: {
             is_read: false,
             created_at: serverTimestamp(),
           });
+          console.info('[ConfirmDeliveryDebug] 9a.post_notification_ok', {
+            recipient: txContext.otherUid,
+          });
         } catch (err) {
-          console.warn('Notificación secundaria omitida:', err);
+          console.warn('[ConfirmDeliveryDebug] 9b.post_notification_failed', classifyFirestoreFailure(err));
         }
       }
     }
 
+    activeStage = 'final_read_exchange';
+    activePath = `exchanges/${params.exchangeId}`;
     const updatedSnap = await getDoc(exchangeRef);
     const d = updatedSnap.data() ?? {};
+    console.info('[ConfirmDeliveryDebug] 10.final_exchange_state', {
+      exchangeId: updatedSnap.id,
+      status: d.status,
+      completed_at: d.completed_at ?? null,
+    });
+
     return {
       id: updatedSnap.id,
       match_id: String(d.match_id || ''),
@@ -478,7 +723,23 @@ export async function confirmExchangeDeliveryRpc(params: {
       created_at: toIsoString(d.created_at),
     };
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `exchanges/${params.exchangeId}`);
+    const failure = classifyFirestoreFailure(error);
+    console.error('[ConfirmDeliveryDebug] FAILED_CORE_CONFIRMATION', {
+      failingStage: activeStage,
+      failingPath: activePath,
+      errorCategory: failure.category,
+      firebaseCode: failure.code,
+      message: failure.message,
+      authContext: debugTrace,
+      lastExchangeSnapshot,
+      lastConfirmationSnapshot,
+    });
+    handleFirestoreError(error, OperationType.WRITE, activePath, {
+      failingStage: activeStage,
+      errorCategory: failure.category,
+      exchangeSnapshot: lastExchangeSnapshot,
+      confirmationSnapshot: lastConfirmationSnapshot,
+    });
   }
 }
 

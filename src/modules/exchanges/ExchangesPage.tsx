@@ -92,13 +92,29 @@ export const ExchangesPage: React.FC = () => {
     setError(null);
     setSuccessMsg(null);
     setSubmittingConfirmId(exchangeId);
+    const targetExchange = exchanges.find((item) => item.id === exchangeId);
+    console.info('[ConfirmDeliveryDebug] 0.ui_click', {
+      exchangeId,
+      uid: user?.uid ?? null,
+      emailVerified: user?.emailVerified ?? null,
+      currentStatus: targetExchange?.status ?? null,
+      confirmationsCount: targetExchange?.exchange_confirmations?.length ?? 0,
+    });
     try {
-      await confirmExchangeDeliveryRpc({
+      const updated = await confirmExchangeDeliveryRpc({
         exchangeId,
+      });
+      console.info('[ConfirmDeliveryDebug] 11.ui_rpc_resolved', {
+        exchangeId,
+        newStatus: updated.status,
       });
       setSuccessMsg('¡Entrega confirmada y completada automáticamente! Tu Árbol Circular ha sido actualizado.');
       await loadData();
     } catch (err) {
+      console.error('[ConfirmDeliveryDebug] 12.ui_caught_error', {
+        exchangeId,
+        rawError: err instanceof Error ? err.message : String(err),
+      });
       setError(translateFirebaseError(err));
     } finally {
       setSubmittingConfirmId(null);

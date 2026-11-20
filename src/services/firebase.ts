@@ -45,8 +45,10 @@ export enum OperationType {
 
 export interface FirestoreErrorInfo {
   error: string;
+  code?: string;
   operationType: OperationType;
   path: string | null;
+  debugDetails?: Record<string, unknown>;
   authInfo: {
     userId: string | undefined;
     email: string | null | undefined;
@@ -65,10 +67,18 @@ export interface FirestoreErrorInfo {
 export function handleFirestoreError(
   error: unknown,
   operationType: OperationType,
-  path: string | null
+  path: string | null,
+  debugDetails?: Record<string, unknown>
 ): never {
+  const firebaseCode =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : undefined;
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
+    ...(firebaseCode ? { code: firebaseCode } : {}),
+    ...(debugDetails ? { debugDetails } : {}),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -126,8 +136,20 @@ export function translateFirebaseError(err: unknown): string {
   try {
     const parsed = JSON.parse(raw) as FirestoreErrorInfo;
     if (parsed?.error) {
-      if (parsed.error.includes('permission-denied') || parsed.error.includes('Missing or insufficient permissions')) {
-        return 'No tienes permisos suficientes o falta verificar tu correo electrónico para realizar esta acción.';
+      const stage =
+        parsed.debugDetails && typeof parsed.debugDetails.failingStage === 'string'
+          ? parsed.debugDetails.failingStage
+          : null;
+      const target = parsed.path ? ` (${parsed.path})` : '';
+      if (
+        parsed.code === 'permission-denied' ||
+        parsed.error.includes('permission-denied') ||
+        parsed.error.includes('Missing or insufficient permissions')
+      ) {
+        return `Permisos insuficientes en Firestore${target}${stage ? ` [${stage}]` : ''}. Verifica que iniciaste sesión como participante del intercambio y recarga la aplicación si tienes una versión en caché.`;
+      }
+      if (parsed.code === 'failed-precondition' || parsed.code === 'aborted') {
+        return `El estado de la transacción cambió durante la operación${target}. Recarga e intenta nuevamente.`;
       }
       return parsed.error;
     }

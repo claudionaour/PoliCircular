@@ -600,6 +600,7 @@ service cloud.firestore {
       allow get: if isValidId(productId) && (
         resource == null
         || resource.data.status in ['approved', 'reserved', 'in_delivery', 'completed']
+        || (isSignedIn() && resource.data.status in ['archived', 'expired', 'suspended'])
         || (isSignedIn() && resource.data.owner_id == request.auth.uid)
         || isModerator()
       );
@@ -660,7 +661,10 @@ service cloud.firestore {
               get(/databases/$(database)/documents/exchanges/$(incoming().sync_exchange_id)).data.owner_id == request.auth.uid
               || get(/databases/$(database)/documents/exchanges/$(incoming().sync_exchange_id)).data.requester_id == request.auth.uid
             )
-            && getAfter(/databases/$(database)/documents/exchanges/$(incoming().sync_exchange_id)).data.status in ['completed', 'cancelled']
+            && (
+              getAfter(/databases/$(database)/documents/exchanges/$(incoming().sync_exchange_id)).data.status in ['completed', 'cancelled']
+              || get(/databases/$(database)/documents/exchanges/$(incoming().sync_exchange_id)).data.status in ['completed', 'cancelled']
+            )
           )
         );
       allow delete: if false;
