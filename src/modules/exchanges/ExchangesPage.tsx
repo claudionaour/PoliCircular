@@ -18,7 +18,6 @@ import {
   markExchangeDispute,
   proposeExchangeDelivery,
 } from '../../services/exchangeService';
-import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { OsmSectorMap } from '../../components/OsmSectorMap';
 import { ReviewFormModal } from '../reviews/ReviewFormModal';
 import { ReportModal } from '../../components/ReportModal';
@@ -27,7 +26,6 @@ import type { ExchangeRecord } from '../../types/domain';
 
 export const ExchangesPage: React.FC = () => {
   const { user } = useAuth();
-  const isOnline = useOnlineStatus();
 
   const [exchanges, setExchanges] = useState<ExchangeRecord[]>([]);
   const [reviewedIds, setReviewedIds] = useState<string[]>([]);
@@ -41,9 +39,8 @@ export const ExchangesPage: React.FC = () => {
   const [meetingLat, setMeetingLat] = useState<number | null>(-42.4822);
   const [meetingLng, setMeetingLng] = useState<number | null>(-73.7644);
 
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [measuredWeight, setMeasuredWeight] = useState('');
-  const [confirmNotes, setConfirmNotes] = useState('');
+  const [submittingConfirmId, setSubmittingConfirmId] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [reviewTarget, setReviewTarget] = useState<{ exchangeId: string; name: string } | null>(null);
   const [reportTargetId, setReportTargetId] = useState<string | null>(null);
@@ -91,24 +88,19 @@ export const ExchangesPage: React.FC = () => {
   };
 
   const handleConfirmDelivery = async (exchangeId: string) => {
-    if (!isOnline) {
-      setError('Se requiere conexión activa con el servidor para confirmar una entrega.');
-      return;
-    }
     setError(null);
+    setSuccessMsg(null);
+    setSubmittingConfirmId(exchangeId);
     try {
-      const parsedWeight = measuredWeight.trim() ? Number(measuredWeight) : null;
       await confirmExchangeDeliveryRpc({
         exchangeId,
-        notes: confirmNotes,
-        measuredWeightKg: parsedWeight && parsedWeight > 0 ? parsedWeight : null,
       });
-      setConfirmingId(null);
-      setMeasuredWeight('');
-      setConfirmNotes('');
+      setSuccessMsg('¡Entrega confirmada y completada automáticamente! Tu Árbol Circular ha sido actualizado.');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No fue posible registrar tu confirmación.');
+    } finally {
+      setSubmittingConfirmId(null);
     }
   };
 
@@ -140,9 +132,15 @@ export const ExchangesPage: React.FC = () => {
           Mis intercambios y coordinación de entregas
         </h1>
         <p className="text-sm text-slate-200">
-          La operación se finaliza únicamente cuando ambas partes confirman la entrega. Nunca se publican domicilios particulares.
+          Al presionar Confirmar entrega, la operación se confirma y finaliza automáticamente por cualquiera de los participantes. Nunca se publican domicilios particulares.
         </p>
       </div>
+
+      {successMsg && (
+        <div className="rounded-xl bg-[#143D29] border border-[#34D399]/40 p-3 text-xs text-[#A7F3D0]">
+          {successMsg}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
@@ -237,9 +235,13 @@ export const ExchangesPage: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <span className="text-slate-300 block">Confirmación bilateral</span>
+                    <span className="text-slate-300 block">Estado de confirmación</span>
                     <strong className="text-white">
-                      Tu confirmación: {iConfirmed ? 'Sí' : 'Pendiente'} · Otra parte: {otherConfirmed ? 'Sí' : 'Pendiente'}
+                      {ex.status === 'completed'
+                        ? 'Confirmada y completada'
+                        : iConfirmed || otherConfirmed
+                          ? 'Confirmación registrada'
+                          : 'Pendiente'}
                     </strong>
                   </div>
                 </div>
@@ -319,63 +321,6 @@ export const ExchangesPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Confirmación bilateral */}
-                {confirmingId === ex.id && !isClosed && (
-                  <div className="rounded-xl border border-[#34D399]/40 bg-[#143D29] p-4 space-y-3">
-                    <h3 className="font-display font-bold text-sm text-white">
-                      Confirmar entrega realizada
-                    </h3>
-                    <p className="text-xs text-slate-200">
-                      Si pesaron realmente los objetos entregados en una balanza, pueden registrar el peso medido real. Si lo dejas vacío, el sistema calculará un peso estimado de referencia.
-                    </p>
-                    <div className="grid sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-200 mb-1">
-                          Peso medido real en kg (solo si fue pesado)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          value={measuredWeight}
-                          onChange={(e) => setMeasuredWeight(e.target.value)}
-                          placeholder="Opcional (ej. 2.5)"
-                          className="w-full rounded-xl border border-[#34D399]/40 bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-200 mb-1">
-                          Notas de entrega (opcional)
-                        </label>
-                        <input
-                          type="text"
-                          value={confirmNotes}
-                          onChange={(e) => setConfirmNotes(e.target.value)}
-                          placeholder="Entregado en buenas condiciones"
-                          className="w-full rounded-xl border border-[#34D399]/40 bg-[#0B1E33] text-white placeholder:text-slate-400 px-3 py-2 text-xs"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setConfirmingId(null)}
-                        className="px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleConfirmDelivery(ex.id)}
-                        disabled={!isOnline}
-                        className="px-4 py-2 rounded-xl bg-[#34D399] text-[#0B1E33] text-xs font-bold hover:bg-[#6EE7B7] disabled:opacity-50"
-                      >
-                        Registrar mi confirmación
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {/* Acciones */}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#244B73]">
                   {!isClosed && (
@@ -393,16 +338,19 @@ export const ExchangesPage: React.FC = () => {
                         Proponer fecha / lugar
                       </button>
 
-                      {!iConfirmed && (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingId(confirmingId === ex.id ? null : ex.id)}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454]"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span>Confirmar entrega</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmDelivery(ex.id)}
+                        disabled={submittingConfirmId === ex.id}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454] disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>
+                          {submittingConfirmId === ex.id
+                            ? 'Confirmando...'
+                            : 'Confirmar entrega'}
+                        </span>
+                      </button>
 
                       <button
                         type="button"

@@ -256,7 +256,7 @@
     },
     "Exchange": {
       "title": "Exchange",
-      "description": "Coordinación y seguimiento de entrega bilateral.",
+      "description": "Coordinación y confirmación automática de entrega.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -279,7 +279,7 @@
     },
     "ExchangeConfirmation": {
       "title": "ExchangeConfirmation",
-      "description": "Confirmación individual de entrega realizada por una de las partes.",
+      "description": "Confirmación automática de entrega realizada por cualquiera de los participantes.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 260, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -506,7 +506,7 @@
     },
     "/exchange_confirmations/{confirmationId}": {
       "schema": { "$ref": "#/entities/ExchangeConfirmation" },
-      "description": "Confirmación bilateral de entrega."
+      "description": "Confirmación automática de entrega."
     },
     "/reviews/{reviewId}": {
       "schema": { "$ref": "#/entities/Review" },

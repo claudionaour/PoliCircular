@@ -558,8 +558,8 @@ service cloud.firestore {
             || (existing().is_suspended == false && incoming().is_suspended == true)
           )
         ) || (
-          // Atomic reputation recalculation strictly bound to newly created verified review
-          isVerifiedUser()
+          // Atomic reputation recalculation strictly bound to newly created review
+          isSignedIn()
           && incoming().diff(existing()).affectedKeys().hasOnly(['reputation_avg', 'reputation_count', 'last_review_id', 'updated_at'])
           && incoming().reputation_count == existing().reputation_count + 1
           && isValidId(incoming().last_review_id)
@@ -598,7 +598,7 @@ service cloud.firestore {
     // =========================================================================
     match /products/{productId} {
       allow get: if isValidId(productId) && (
-        resource.data.status == 'approved'
+        resource.data.status in ['approved', 'reserved', 'in_delivery', 'completed']
         || (isSignedIn() && resource.data.owner_id == request.auth.uid)
         || isModerator()
       );
@@ -615,7 +615,7 @@ service cloud.firestore {
         && incoming().created_at == request.time
         && incoming().updated_at == request.time;
 
-      allow update: if isVerifiedUser() && isValidId(productId) && isValidProduct(incoming(), productId)
+      allow update: if isSignedIn() && isValidId(productId) && isValidProduct(incoming(), productId)
         && incoming().id == existing().id
         && incoming().owner_id == existing().owner_id
         && incoming().created_at == existing().created_at
@@ -623,21 +623,24 @@ service cloud.firestore {
         && (
           // Action: Moderator decision
           (
-            isModerator()
+            isVerifiedUser()
+            && isModerator()
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'moderation_notes', 'moderated_by', 'moderated_at', 'updated_at'])
             && incoming().status in ['approved', 'rejected', 'suspended']
             && incoming().moderated_by == request.auth.uid
           ) ||
           // Action: Owner archiving own product
           (
-            isOwner(existing().owner_id)
+            isVerifiedUser()
+            && isOwner(existing().owner_id)
             && existing().status in ['pending', 'approved', 'rejected']
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at'])
             && incoming().status == 'archived'
           ) ||
           // Action: Owner reserving stock when accepting match request
           (
-            isOwner(existing().owner_id)
+            isVerifiedUser()
+            && isOwner(existing().owner_id)
             && existing().status == 'approved'
             && incoming().diff(existing()).affectedKeys().hasOnly(['available_quantity', 'reserved_quantity', 'status', 'updated_at'])
             && incoming().status in ['approved', 'reserved']
@@ -727,7 +730,7 @@ service cloud.firestore {
         && incoming().status == 'active'
         && incoming().created_at == request.time
         && getAfter(/databases/$(database)/documents/match_requests/$(incoming().request_id)).data.status == 'accepted';
-      allow update: if isVerifiedUser() && isValidId(matchId)
+      allow update: if isSignedIn() && isValidId(matchId)
         && isValidMatch(incoming(), matchId)
         && existing().status == 'active'
         && (isOwner(existing().owner_id) || isOwner(existing().requester_id) || isModerator())
@@ -811,7 +814,7 @@ service cloud.firestore {
         && incoming().status == 'pending'
         && incoming().created_at == request.time
         && existsAfter(/databases/$(database)/documents/matches/$(incoming().match_id));
-      allow update: if isVerifiedUser() && isValidId(exchangeId)
+      allow update: if isSignedIn() && isValidId(exchangeId)
         && isValidExchange(incoming(), exchangeId)
         && !(existing().status in ['completed', 'cancelled'])
         && (isOwner(existing().owner_id) || isOwner(existing().requester_id) || isAdmin())
@@ -835,8 +838,10 @@ service cloud.firestore {
               incoming().status == 'delivered_pending_confirm'
               || (
                 incoming().status == 'completed'
-                && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(exchangeId + '_' + existing().owner_id))
-                && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(exchangeId + '_' + existing().requester_id))
+                && (
+                  existsAfter(/databases/$(database)/documents/exchange_confirmations/$(exchangeId + '_' + request.auth.uid))
+                  || isAdmin()
+                )
               )
             )
           ) ||
@@ -853,7 +858,7 @@ service cloud.firestore {
         && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid))
         || isModerator();
-      allow create: if isVerifiedUser() && isValidId(confirmationId)
+      allow create: if isSignedIn() && isValidId(confirmationId)
         && isValidExchangeConfirmation(incoming(), confirmationId)
         && incoming().user_id == request.auth.uid
         && (incoming().owner_id == request.auth.uid || incoming().requester_id == request.auth.uid)
@@ -871,7 +876,7 @@ service cloud.firestore {
     match /reviews/{reviewId} {
       allow get: if isValidId(reviewId);
       allow list: if resource.data.is_flagged is bool;
-      allow create: if isVerifiedUser() && isValidId(reviewId)
+      allow create: if isSignedIn() && isValidId(reviewId)
         && isValidReview(incoming(), reviewId)
         && incoming().reviewer_id == request.auth.uid
         && reviewId == (incoming().exchange_id + '_' + request.auth.uid)
@@ -926,7 +931,7 @@ service cloud.firestore {
     match /user_tree_progress/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if (isSignedIn() && resource.data.user_id == request.auth.uid) || isAdmin();
-      allow create: if isVerifiedUser() && isValidId(userId)
+      allow create: if isSignedIn() && isValidId(userId)
         && isValidTreeProgress(incoming(), userId)
         && incoming().updated_at == request.time
         && (
@@ -944,10 +949,14 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.owner_id == userId
               || getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.requester_id == userId
             )
-            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + userId))
+            && (
+              getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.owner_id == request.auth.uid
+              || getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.requester_id == request.auth.uid
+            )
+            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
           )
         );
-      allow update: if isVerifiedUser() && isValidId(userId)
+      allow update: if isSignedIn() && isValidId(userId)
         && isValidTreeProgress(incoming(), userId)
         && incoming().updated_at == request.time
         && (
@@ -961,7 +970,11 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.owner_id == userId
               || getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.requester_id == userId
             )
-            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + userId))
+            && (
+              getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.owner_id == request.auth.uid
+              || getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.requester_id == request.auth.uid
+            )
+            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
           )
         );
       allow delete: if false;
@@ -970,7 +983,7 @@ service cloud.firestore {
     match /user_achievements/{recId} {
       allow get: if isSignedIn() && isValidId(recId) && (resource.data.user_id == request.auth.uid || isAdmin());
       allow list: if (isSignedIn() && resource.data.user_id == request.auth.uid) || isAdmin();
-      allow create: if isVerifiedUser() && isValidId(recId)
+      allow create: if isSignedIn() && isValidId(recId)
         && isValidUserAchievement(incoming(), recId)
         && recId == (incoming().user_id + '_' + incoming().achievement_id)
         && incoming().unlocked_at == request.time
@@ -979,6 +992,10 @@ service cloud.firestore {
         && (
           getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.owner_id == incoming().user_id
           || getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.requester_id == incoming().user_id
+        )
+        && (
+          getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.owner_id == request.auth.uid
+          || getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.requester_id == request.auth.uid
         );
       allow update, delete: if false;
     }
@@ -986,18 +1003,22 @@ service cloud.firestore {
     match /impact_records/{impactId} {
       allow get: if isValidId(impactId);
       allow list: if resource.data.quantity >= 1;
-      allow create: if isVerifiedUser() && isValidId(impactId)
+      allow create: if isSignedIn() && isValidId(impactId)
         && isValidImpactRecord(incoming(), impactId)
         && impactId == incoming().exchange_id
         && incoming().created_at == request.time
-        && getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.status == 'completed';
+        && getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.status == 'completed'
+        && (
+          getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.owner_id == request.auth.uid
+          || getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.requester_id == request.auth.uid
+        );
       allow update, delete: if false;
     }
 
     match /notifications/{notificationId} {
       allow get: if isSignedIn() && isValidId(notificationId) && resource.data.user_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow create: if isVerifiedUser() && isValidId(notificationId)
+      allow create: if isSignedIn() && isValidId(notificationId)
         && isValidNotification(incoming(), notificationId)
         && incoming().is_read == false
         && incoming().created_at == request.time;

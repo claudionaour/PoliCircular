@@ -212,7 +212,22 @@ export async function confirmExchangeDeliveryRpc(params: {
     const fn = httpsCallable(functions, 'confirmExchangeDelivery');
     await fn(params);
     const snap = await getDoc(doc(db, 'exchanges', params.exchangeId));
-    return { id: snap.id, ...(snap.data() as Omit<ExchangeRecord, 'id'>) };
+    const d = snap.data() ?? {};
+    return {
+      id: snap.id,
+      match_id: String(d.match_id || ''),
+      status: (d.status as ExchangeRecord['status']) || 'completed',
+      proposed_date: d.proposed_date ? String(d.proposed_date) : null,
+      proposed_time_slot: d.proposed_time_slot ? String(d.proposed_time_slot) : null,
+      meeting_point_label: d.meeting_point_label ? String(d.meeting_point_label) : null,
+      meeting_point_lat: typeof d.meeting_point_lat === 'number' ? d.meeting_point_lat : null,
+      meeting_point_lng: typeof d.meeting_point_lng === 'number' ? d.meeting_point_lng : null,
+      proposed_by: d.proposed_by ? String(d.proposed_by) : null,
+      cancelled_by: d.cancelled_by ? String(d.cancelled_by) : null,
+      cancellation_reason: d.cancellation_reason ? String(d.cancellation_reason) : null,
+      completed_at: toNullableIsoString(d.completed_at),
+      created_at: toIsoString(d.created_at),
+    };
   }
 
   const currentUid = auth.currentUser?.uid;
@@ -220,8 +235,17 @@ export async function confirmExchangeDeliveryRpc(params: {
 
   const exchangeRef = doc(db, 'exchanges', params.exchangeId);
 
-  // Pre-cargar catálogo de logros fuera de la tx (las reglas validan exists en achievements)
-  const achievementsSnap = await getDocs(collection(db, 'achievements'));
+  // Pre-cargar catálogo de logros fuera de la tx (si falla por cualquier motivo, no bloquea la confirmación)
+  let achievementDocs: Array<{ id: string; reqOps: number }> = [];
+  try {
+    const achievementsSnap = await getDocs(collection(db, 'achievements'));
+    achievementDocs = achievementsSnap.docs.map((d) => ({
+      id: d.id,
+      reqOps: Number(d.data().required_operations ?? 1),
+    }));
+  } catch {
+    achievementDocs = [];
+  }
 
   try {
     const finalStatus = await runTransaction(db, async (tx) => {
@@ -234,100 +258,65 @@ export async function confirmExchangeDeliveryRpc(params: {
         throw new Error('No perteneces a este intercambio.');
       }
       if (['completed', 'cancelled'].includes(ex.status)) {
-        throw new Error('Este intercambio ya finalizó.');
+        return 'completed' as const;
       }
 
       const myConfId = `${params.exchangeId}_${currentUid}`;
       const myConfRef = doc(db, 'exchange_confirmations', myConfId);
       const myConfSnap = await tx.get(myConfRef);
-      if (myConfSnap.exists()) {
-        throw new Error('Ya registraste tu confirmación de entrega.');
-      }
 
       const otherUid = ex.owner_id === currentUid ? String(ex.requester_id) : String(ex.owner_id);
       const otherConfRef = doc(db, 'exchange_confirmations', `${params.exchangeId}_${otherUid}`);
       const otherConfSnap = await tx.get(otherConfRef);
-      const bilateralCompleted = otherConfSnap.exists();
 
-      if (!bilateralCompleted) {
-        // 2a. Confirmación unilateral -> queda esperando a la contraparte
-        tx.set(myConfRef, {
-          id: myConfId,
-          exchange_id: params.exchangeId,
-          user_id: currentUid,
-          owner_id: ex.owner_id,
-          requester_id: ex.requester_id,
-          confirmed_at: serverTimestamp(),
-          notes: params.notes?.trim() || null,
-          measured_weight_kg:
-            typeof params.measuredWeightKg === 'number' ? params.measuredWeightKg : null,
-        });
+      const matchId = String(ex.match_id || '').trim();
+      const matchRef = matchId ? doc(db, 'matches', matchId) : null;
+      const matchSnap = matchRef ? await tx.get(matchRef) : null;
+      const match = matchSnap?.exists() ? matchSnap.data() : null;
 
-        tx.update(exchangeRef, {
-          status: 'delivered_pending_confirm',
-          updated_at: serverTimestamp(),
-        });
+      const productId = String(match?.target_product_id || '').trim();
+      const productRef = productId ? doc(db, 'products', productId) : null;
+      const productSnap = productRef ? await tx.get(productRef) : null;
+      const product = productSnap?.exists() ? productSnap.data() : null;
 
-        const notifRef = doc(collection(db, 'notifications'));
-        tx.set(notifRef, {
-          id: notifRef.id,
-          user_id: otherUid,
-          event_type: 'exchange_half_confirmed',
-          title: 'Tu contraparte confirmó la entrega',
-          body: 'Ingresa a Intercambios para confirmar la recepción y hacer crecer tu Árbol Circular.',
-          link_path: '/intercambios',
-          is_read: false,
-          created_at: serverTimestamp(),
-        });
-
-        return 'delivered_pending_confirm' as const;
-      }
-
-      // 2b. Lecturas adicionales para cierre bilateral completo
-      const matchRef = doc(db, 'matches', String(ex.match_id));
-      const matchSnap = await tx.get(matchRef);
-      if (!matchSnap.exists()) throw new Error('Match asociado no encontrado.');
-      const match = matchSnap.data();
-
-      const productRef = doc(db, 'products', String(match.target_product_id));
-      const productSnap = await tx.get(productRef);
-      if (!productSnap.exists()) throw new Error('Publicación asociada no encontrada.');
-      const product = productSnap.data();
-
-      const catSnap = await tx.get(doc(db, 'categories', String(product.category_id)));
-      const catWeight = catSnap.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
+      const categoryId = String(product?.category_id || '').trim();
+      const catSnap = categoryId ? await tx.get(doc(db, 'categories', categoryId)) : null;
+      const catWeight = catSnap?.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
 
       const ownerTreeRef = doc(db, 'user_tree_progress', String(ex.owner_id));
       const requesterTreeRef = doc(db, 'user_tree_progress', String(ex.requester_id));
-      const [ownerTreeSnap, requesterTreeSnap] = await Promise.all([
+      const impactRef = doc(db, 'impact_records', params.exchangeId);
+      const [ownerTreeSnap, requesterTreeSnap, impactSnap] = await Promise.all([
         tx.get(ownerTreeRef),
         tx.get(requesterTreeRef),
+        tx.get(impactRef),
       ]);
 
-      // Verificar qué logros aún no están desbloqueados para evitar sobrescrituras prohibidas
-      const isGift = match.modality === 'gift';
+      const isGift = match ? match.modality === 'gift' : true;
       const participantUpdates = [
         { uid: String(ex.owner_id), snap: ownerTreeSnap },
         { uid: String(ex.requester_id), snap: requesterTreeSnap },
-      ].map((p) => {
-        const prev = p.snap.exists()
-          ? p.snap.data()
-          : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0 };
-        const nextOps = Number(prev.completed_operations ?? 0) + 1;
-        return {
-          uid: p.uid,
-          exists: p.snap.exists(),
-          nextOps,
-          nextGifts: Number(prev.completed_gifts ?? 0) + (isGift ? 1 : 0),
-          nextEx: Number(prev.completed_exchanges ?? 0) + (isGift ? 0 : 1),
-        };
-      });
+      ]
+        .filter((p) => Boolean(p.uid))
+        .map((p) => {
+          const prev = p.snap.exists()
+            ? p.snap.data()
+            : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
+          const alreadyCounted = prev.last_exchange_id === params.exchangeId;
+          const nextOps = Number(prev.completed_operations ?? 0) + (alreadyCounted ? 0 : 1);
+          return {
+            uid: p.uid,
+            alreadyCounted,
+            nextOps,
+            nextGifts: Number(prev.completed_gifts ?? 0) + (alreadyCounted ? 0 : isGift ? 1 : 0),
+            nextEx: Number(prev.completed_exchanges ?? 0) + (alreadyCounted ? 0 : isGift ? 0 : 1),
+          };
+        });
 
       const unlockedToCreate: { recId: string; uid: string; achId: string }[] = [];
       for (const p of participantUpdates) {
-        for (const achDoc of achievementsSnap.docs) {
-          const reqOps = Number(achDoc.data().required_operations ?? 1);
-          if (p.nextOps >= reqOps) {
+        for (const achDoc of achievementDocs) {
+          if (p.nextOps >= achDoc.reqOps) {
             const recId = `${p.uid}_${achDoc.id}`;
             const existingUa = await tx.get(doc(db, 'user_achievements', recId));
             if (!existingUa.exists()) {
@@ -337,18 +326,22 @@ export async function confirmExchangeDeliveryRpc(params: {
         }
       }
 
-      // ESCRITURAS ATÓMICAS DE CIERRE BILATERAL
-      tx.set(myConfRef, {
-        id: myConfId,
-        exchange_id: params.exchangeId,
-        user_id: currentUid,
-        owner_id: ex.owner_id,
-        requester_id: ex.requester_id,
-        confirmed_at: serverTimestamp(),
-        notes: params.notes?.trim() || null,
-        measured_weight_kg:
-          typeof params.measuredWeightKg === 'number' ? params.measuredWeightKg : null,
-      });
+      // 2. ESCRITURAS ATÓMICAS DE CONFIRMACIÓN Y CIERRE AUTOMÁTICO INMEDIATO
+      if (!myConfSnap.exists()) {
+        tx.set(myConfRef, {
+          id: myConfId,
+          exchange_id: params.exchangeId,
+          user_id: currentUid,
+          owner_id: ex.owner_id,
+          requester_id: ex.requester_id,
+          confirmed_at: serverTimestamp(),
+          notes: params.notes?.trim() || null,
+          measured_weight_kg:
+            typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
+              ? params.measuredWeightKg
+              : null,
+        });
+      }
 
       tx.update(exchangeRef, {
         status: 'completed',
@@ -356,35 +349,48 @@ export async function confirmExchangeDeliveryRpc(params: {
         updated_at: serverTimestamp(),
       });
 
-      tx.update(matchRef, {
-        status: 'completed',
-        updated_at: serverTimestamp(),
-      });
-
-      const qtyReserved = Number(match.quantity_reserved ?? 1);
-      const nextReserved = Math.max(0, Number(product.reserved_quantity ?? 0) - qtyReserved);
-      const nextProdStatus =
-        Number(product.available_quantity ?? 0) === 0 && nextReserved === 0
-          ? 'completed'
-          : product.status;
-
-      tx.update(productRef, {
-        reserved_quantity: nextReserved,
-        status: nextProdStatus,
-        sync_exchange_id: params.exchangeId,
-        updated_at: serverTimestamp(),
-      });
-
-      for (const p of participantUpdates) {
-        tx.set(doc(db, 'user_tree_progress', p.uid), {
-          user_id: p.uid,
-          completed_operations: p.nextOps,
-          completed_gifts: p.nextGifts,
-          completed_exchanges: p.nextEx,
-          current_stage: computeTreeStage(p.nextOps),
-          last_exchange_id: params.exchangeId,
+      if (matchRef && match && match.status === 'active') {
+        tx.update(matchRef, {
+          status: 'completed',
           updated_at: serverTimestamp(),
         });
+      }
+
+      const qtyReserved = Math.max(1, Math.round(Number(match?.quantity_reserved ?? 1) || 1));
+      if (productRef && product && product.status !== 'completed') {
+        const prevAvail = Math.max(0, Math.round(Number(product.available_quantity ?? 0)));
+        const prevTotal = Math.max(1, Math.round(Number(product.total_quantity ?? prevAvail + qtyReserved)));
+        const nextReserved = Math.max(
+          0,
+          Math.min(prevTotal - prevAvail, Math.round(Number(product.reserved_quantity ?? 0)) - qtyReserved)
+        );
+        const nextProdStatus =
+          prevAvail === 0 && nextReserved === 0
+            ? 'completed'
+            : nextReserved > 0
+              ? 'reserved'
+              : 'approved';
+
+        tx.update(productRef, {
+          reserved_quantity: nextReserved,
+          status: nextProdStatus,
+          sync_exchange_id: params.exchangeId,
+          updated_at: serverTimestamp(),
+        });
+      }
+
+      for (const p of participantUpdates) {
+        if (!p.alreadyCounted) {
+          tx.set(doc(db, 'user_tree_progress', p.uid), {
+            user_id: p.uid,
+            completed_operations: p.nextOps,
+            completed_gifts: p.nextGifts,
+            completed_exchanges: p.nextEx,
+            current_stage: computeTreeStage(p.nextOps),
+            last_exchange_id: params.exchangeId,
+            updated_at: serverTimestamp(),
+          });
+        }
       }
 
       for (const ua of unlockedToCreate) {
@@ -397,57 +403,65 @@ export async function confirmExchangeDeliveryRpc(params: {
         });
       }
 
-      const measured =
-        typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
-          ? params.measuredWeightKg
-          : Number(otherConfSnap.data().measured_weight_kg || 0);
-      const totalWeight =
-        measured > 0 ? measured : Number((catWeight * qtyReserved).toFixed(2));
+      if (!impactSnap.exists() && product) {
+        const otherMeasured = otherConfSnap.exists()
+          ? Number(otherConfSnap.data().measured_weight_kg || 0)
+          : 0;
+        const measured =
+          typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
+            ? params.measuredWeightKg
+            : otherMeasured;
+        const totalWeight =
+          measured > 0 ? measured : Number((catWeight * qtyReserved).toFixed(2));
 
-      tx.set(doc(db, 'impact_records', params.exchangeId), {
-        id: params.exchangeId,
-        exchange_id: params.exchangeId,
-        product_id: String(product.id),
-        category_id: String(product.category_id),
-        commune_id: String(product.commune_id),
-        sector_id: product.sector_id ? String(product.sector_id) : null,
-        modality: match.modality,
-        quantity: qtyReserved,
-        weight_kg: totalWeight,
-        weight_type: measured > 0 ? 'measured' : 'estimated',
-        created_at: serverTimestamp(),
-      });
+        tx.set(impactRef, {
+          id: params.exchangeId,
+          exchange_id: params.exchangeId,
+          product_id: String(product.id || productId),
+          category_id: categoryId || 'otros',
+          commune_id: String(product.commune_id || 'castro'),
+          sector_id: product.sector_id ? String(product.sector_id) : null,
+          modality: match?.modality === 'exchange' ? 'exchange' : 'gift',
+          quantity: qtyReserved,
+          weight_kg: totalWeight,
+          weight_type: measured > 0 ? 'measured' : 'estimated',
+          created_at: serverTimestamp(),
+        });
+      }
 
-      const notifRef = doc(collection(db, 'notifications'));
-      tx.set(notifRef, {
-        id: notifRef.id,
-        user_id: otherUid,
-        event_type: 'exchange_completed',
-        title: '¡Entrega circular completada!',
-        body: 'Ambos confirmaron la entrega. Tu Árbol Circular creció y ya puedes dejar una reseña.',
-        link_path: '/mi-arbol',
-        is_read: false,
-        created_at: serverTimestamp(),
-      });
+      if (otherUid && otherUid !== currentUid) {
+        const notifRef = doc(collection(db, 'notifications'));
+        tx.set(notifRef, {
+          id: notifRef.id,
+          user_id: otherUid,
+          event_type: 'exchange_completed',
+          title: '¡Entrega circular completada!',
+          body: 'La entrega fue confirmada. Tu Árbol Circular creció y ya puedes dejar una reseña.',
+          link_path: '/mi-arbol',
+          is_read: false,
+          created_at: serverTimestamp(),
+        });
+      }
 
       return 'completed' as const;
     });
 
     const updatedSnap = await getDoc(exchangeRef);
+    const d = updatedSnap.data() ?? {};
     return {
       id: updatedSnap.id,
-      match_id: String(updatedSnap.data()?.match_id || ''),
+      match_id: String(d.match_id || ''),
       status: finalStatus,
-      proposed_date: null,
-      proposed_time_slot: null,
-      meeting_point_label: null,
-      meeting_point_lat: null,
-      meeting_point_lng: null,
-      proposed_by: null,
-      cancelled_by: null,
-      cancellation_reason: null,
-      completed_at: finalStatus === 'completed' ? new Date().toISOString() : null,
-      created_at: toIsoString(updatedSnap.data()?.created_at),
+      proposed_date: d.proposed_date ? String(d.proposed_date) : null,
+      proposed_time_slot: d.proposed_time_slot ? String(d.proposed_time_slot) : null,
+      meeting_point_label: d.meeting_point_label ? String(d.meeting_point_label) : null,
+      meeting_point_lat: typeof d.meeting_point_lat === 'number' ? d.meeting_point_lat : null,
+      meeting_point_lng: typeof d.meeting_point_lng === 'number' ? d.meeting_point_lng : null,
+      proposed_by: d.proposed_by ? String(d.proposed_by) : null,
+      cancelled_by: d.cancelled_by ? String(d.cancelled_by) : null,
+      cancellation_reason: d.cancellation_reason ? String(d.cancellation_reason) : null,
+      completed_at: toNullableIsoString(d.completed_at) ?? new Date().toISOString(),
+      created_at: toIsoString(d.created_at),
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `exchanges/${params.exchangeId}`);

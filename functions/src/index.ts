@@ -244,7 +244,10 @@ export const acceptMatchRequest = onCall(async (request) => {
 });
 
 export const confirmExchangeDelivery = onCall(async (request) => {
-  const auth = assertVerifiedAuth(request.auth);
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+  const auth = request.auth;
   const { exchangeId, notes, measuredWeightKg } = request.data as {
     exchangeId?: string;
     notes?: string;
@@ -264,136 +267,148 @@ export const confirmExchangeDelivery = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'No eres participante de este intercambio.');
     }
     if (['completed', 'cancelled'].includes(ex.status)) {
-      throw new HttpsError('failed-precondition', 'Este intercambio ya fue finalizado.');
+      return { completed: ex.status === 'completed' };
     }
 
     const myConfRef = db.collection('exchange_confirmations').doc(`${exchangeId}_${auth.uid}`);
     const myConfSnap = await tx.get(myConfRef);
-    if (myConfSnap.exists) {
-      throw new HttpsError('already-exists', 'Ya confirmaste la entrega.');
-    }
-
     const otherUid = ex.owner_id === auth.uid ? ex.requester_id : ex.owner_id;
-    const otherConfRef = db.collection('exchange_confirmations').doc(`${exchangeId}_${otherUid}`);
-    const otherConfSnap = await tx.get(otherConfRef);
-    const bilateralCompleted = otherConfSnap.exists;
 
-    tx.set(myConfRef, {
-      id: myConfRef.id,
-      exchange_id: exchangeId,
-      user_id: auth.uid,
-      owner_id: ex.owner_id,
-      requester_id: ex.requester_id,
-      confirmed_at: FieldValue.serverTimestamp(),
-      notes: notes?.trim() || null,
-      measured_weight_kg: typeof measuredWeightKg === 'number' ? measuredWeightKg : null,
-    });
-
-    if (!bilateralCompleted) {
-      tx.update(exchangeRef, {
-        status: 'delivered_pending_confirm',
-        updated_at: FieldValue.serverTimestamp(),
-      });
-      const notifRef = db.collection('notifications').doc();
-      tx.set(notifRef, {
-        id: notifRef.id,
-        user_id: otherUid,
-        event_type: 'exchange_half_confirmed',
-        title: 'Tu contraparte confirmó la entrega',
-        body: 'Ingresa a Intercambios para confirmar la recepción y hacer crecer tu Árbol Circular.',
-        link_path: '/intercambios',
-        is_read: false,
-        created_at: FieldValue.serverTimestamp(),
-      });
-      return { completed: false };
-    }
-
-    // Confirmación bilateral completa
-    const matchRef = db.collection('matches').doc(ex.match_id);
-    const matchSnap = await tx.get(matchRef);
-    const match = matchSnap.data()!;
-    const productRef = db.collection('products').doc(match.target_product_id);
-    const productSnap = await tx.get(productRef);
-    const product = productSnap.data()!;
-    const categorySnap = await tx.get(db.collection('categories').doc(product.category_id));
-    const categoryWeight = categorySnap.data()?.estimated_weight_kg || 1;
+    const matchSnap = ex.match_id ? await tx.get(db.collection('matches').doc(ex.match_id)) : null;
+    const match = matchSnap?.exists ? matchSnap.data()! : null;
+    const productRef = match?.target_product_id
+      ? db.collection('products').doc(match.target_product_id)
+      : null;
+    const productSnap = productRef ? await tx.get(productRef) : null;
+    const product = productSnap?.exists ? productSnap.data()! : null;
+    const categorySnap =
+      product?.category_id ? await tx.get(db.collection('categories').doc(product.category_id)) : null;
+    const categoryWeight = categorySnap?.data()?.estimated_weight_kg || 1;
 
     const ownerTreeRef = db.collection('user_tree_progress').doc(ex.owner_id);
     const requesterTreeRef = db.collection('user_tree_progress').doc(ex.requester_id);
-    const ownerTreeSnap = await tx.get(ownerTreeRef);
-    const requesterTreeSnap = await tx.get(requesterTreeRef);
-    const achievementsSnap = await tx.get(db.collection('achievements'));
+    const impactRef = db.collection('impact_records').doc(exchangeId);
+    const [ownerTreeSnap, requesterTreeSnap, impactSnap, achievementsSnap] = await Promise.all([
+      tx.get(ownerTreeRef),
+      tx.get(requesterTreeRef),
+      tx.get(impactRef),
+      tx.get(db.collection('achievements')),
+    ]);
+
+    if (!myConfSnap.exists) {
+      tx.set(myConfRef, {
+        id: myConfRef.id,
+        exchange_id: exchangeId,
+        user_id: auth.uid,
+        owner_id: ex.owner_id,
+        requester_id: ex.requester_id,
+        confirmed_at: FieldValue.serverTimestamp(),
+        notes: notes?.trim() || null,
+        measured_weight_kg: typeof measuredWeightKg === 'number' ? measuredWeightKg : null,
+      });
+    }
 
     tx.update(exchangeRef, {
       status: 'completed',
       completed_at: FieldValue.serverTimestamp(),
       updated_at: FieldValue.serverTimestamp(),
     });
-    tx.update(matchRef, { status: 'completed', updated_at: FieldValue.serverTimestamp() });
 
-    const newReserved = Math.max(0, (product.reserved_quantity || 0) - match.quantity_reserved);
-    const nextProductStatus =
-      product.available_quantity === 0 && newReserved === 0 ? 'completed' : product.status;
-    tx.update(productRef, {
-      reserved_quantity: newReserved,
-      status: nextProductStatus,
-      sync_exchange_id: exchangeId,
-      updated_at: FieldValue.serverTimestamp(),
-    });
+    if (matchSnap?.exists && match?.status === 'active') {
+      tx.update(db.collection('matches').doc(ex.match_id), {
+        status: 'completed',
+        updated_at: FieldValue.serverTimestamp(),
+      });
+    }
 
-    const isGift = match.modality === 'gift';
+    const qtyReserved = Math.max(1, Number(match?.quantity_reserved || 1));
+    if (productRef && product && product.status !== 'completed') {
+      const newReserved = Math.max(0, (product.reserved_quantity || 0) - qtyReserved);
+      const nextProductStatus =
+        (product.available_quantity || 0) === 0 && newReserved === 0
+          ? 'completed'
+          : newReserved > 0
+            ? 'reserved'
+            : 'approved';
+      tx.update(productRef, {
+        reserved_quantity: newReserved,
+        status: nextProductStatus,
+        sync_exchange_id: exchangeId,
+        updated_at: FieldValue.serverTimestamp(),
+      });
+    }
+
+    const isGift = match ? match.modality === 'gift' : true;
     for (const [uid, snap] of [
       [ex.owner_id, ownerTreeSnap],
       [ex.requester_id, requesterTreeSnap],
     ] as const) {
       const prev = snap.exists
         ? snap.data()!
-        : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0 };
-      const nextOps = (prev.completed_operations || 0) + 1;
-      const nextGifts = (prev.completed_gifts || 0) + (isGift ? 1 : 0);
-      const nextEx = (prev.completed_exchanges || 0) + (isGift ? 0 : 1);
-      tx.set(db.collection('user_tree_progress').doc(uid), {
-        user_id: uid,
-        completed_operations: nextOps,
-        completed_gifts: nextGifts,
-        completed_exchanges: nextEx,
-        current_stage: computeTreeStage(nextOps),
-        last_exchange_id: exchangeId,
-        updated_at: FieldValue.serverTimestamp(),
-      });
+        : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
+      if (prev.last_exchange_id !== exchangeId) {
+        const nextOps = (prev.completed_operations || 0) + 1;
+        const nextGifts = (prev.completed_gifts || 0) + (isGift ? 1 : 0);
+        const nextEx = (prev.completed_exchanges || 0) + (isGift ? 0 : 1);
+        tx.set(db.collection('user_tree_progress').doc(uid), {
+          user_id: uid,
+          completed_operations: nextOps,
+          completed_gifts: nextGifts,
+          completed_exchanges: nextEx,
+          current_stage: computeTreeStage(nextOps),
+          last_exchange_id: exchangeId,
+          updated_at: FieldValue.serverTimestamp(),
+        });
 
-      achievementsSnap.docs.forEach((achDoc) => {
-        const ach = achDoc.data();
-        if (nextOps >= ach.required_operations) {
-          const uaRef = db.collection('user_achievements').doc(`${uid}_${ach.id}`);
-          tx.set(uaRef, {
-            id: uaRef.id,
-            user_id: uid,
-            achievement_id: ach.id,
-            exchange_id: exchangeId,
-            unlocked_at: FieldValue.serverTimestamp(),
-          });
-        }
+        achievementsSnap.docs.forEach((achDoc) => {
+          const ach = achDoc.data();
+          if (nextOps >= ach.required_operations) {
+            const uaRef = db.collection('user_achievements').doc(`${uid}_${ach.id}`);
+            tx.set(uaRef, {
+              id: uaRef.id,
+              user_id: uid,
+              achievement_id: ach.id,
+              exchange_id: exchangeId,
+              unlocked_at: FieldValue.serverTimestamp(),
+            });
+          }
+        });
+      }
+    }
+
+    if (!impactSnap.exists && product) {
+      const totalWeight =
+        typeof measuredWeightKg === 'number' && measuredWeightKg > 0
+          ? measuredWeightKg
+          : Number((categoryWeight * qtyReserved).toFixed(2));
+      tx.set(impactRef, {
+        id: exchangeId,
+        exchange_id: exchangeId,
+        product_id: product.id,
+        category_id: product.category_id || 'otros',
+        commune_id: product.commune_id || 'castro',
+        sector_id: product.sector_id || null,
+        modality: match?.modality || 'gift',
+        quantity: qtyReserved,
+        weight_kg: totalWeight,
+        weight_type: typeof measuredWeightKg === 'number' && measuredWeightKg > 0 ? 'measured' : 'estimated',
+        created_at: FieldValue.serverTimestamp(),
       });
     }
 
-    const totalWeight =
-      typeof measuredWeightKg === 'number' && measuredWeightKg > 0
-        ? measuredWeightKg
-        : Number((categoryWeight * match.quantity_reserved).toFixed(2));
-    tx.set(db.collection('impact_records').doc(exchangeId), {
-      id: exchangeId,
-      exchange_id: exchangeId,
-      product_id: product.id,
-      category_id: product.category_id,
-      commune_id: product.commune_id,
-      sector_id: product.sector_id || null,
-      modality: match.modality,
-      quantity: match.quantity_reserved,
-      weight_kg: totalWeight,
-      weight_type: typeof measuredWeightKg === 'number' && measuredWeightKg > 0 ? 'measured' : 'estimated',
-      created_at: FieldValue.serverTimestamp(),
-    });
+    if (otherUid && otherUid !== auth.uid) {
+      const notifRef = db.collection('notifications').doc();
+      tx.set(notifRef, {
+        id: notifRef.id,
+        user_id: otherUid,
+        event_type: 'exchange_completed',
+        title: '¡Entrega circular completada!',
+        body: 'La entrega fue confirmada. Tu Árbol Circular creció y ya puedes dejar una reseña.',
+        link_path: '/mi-arbol',
+        is_read: false,
+        created_at: FieldValue.serverTimestamp(),
+      });
+    }
 
     return { completed: true };
   });
