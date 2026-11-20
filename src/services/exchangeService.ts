@@ -6,6 +6,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -75,7 +76,7 @@ export async function listUserExchanges(userId: string): Promise<ExchangeRecord[
       if (md.requester_id) userIds.push(String(md.requester_id));
     });
 
-    const [maps, profiles, images, productSnaps, confSnaps] = await Promise.all([
+    const [maps, profiles, images, productSnaps, confOwnerSnap, confReqSnap] = await Promise.all([
       fetchLookupMaps(),
       fetchProfilesMap(userIds),
       fetchImagesByProductIds(productIds),
@@ -84,13 +85,12 @@ export async function listUserExchanges(userId: string): Promise<ExchangeRecord[
           getDoc(doc(db, 'products', pid)).catch(() => null)
         )
       ),
-      Promise.all(
-        exDocs.map((eDoc) =>
-          getDocs(
-            query(collection(db, 'exchange_confirmations'), where('exchange_id', '==', eDoc.id))
-          ).catch(() => null)
-        )
+      getDocs(query(collection(db, 'exchange_confirmations'), where('owner_id', '==', userId))).catch(
+        () => null
       ),
+      getDocs(
+        query(collection(db, 'exchange_confirmations'), where('requester_id', '==', userId))
+      ).catch(() => null),
     ]);
 
     const productMap = new Map<string, Product>();
@@ -128,20 +128,24 @@ export async function listUserExchanges(userId: string): Promise<ExchangeRecord[
     });
 
     const confByExchange = new Map<string, ExchangeConfirmation[]>();
-    confSnaps.forEach((snap, idx) => {
-      const exId = exDocs[idx].id;
-      const list =
-        snap?.docs.map((c) => {
-          const cd = c.data();
-          return {
-            id: c.id,
-            exchange_id: String(cd.exchange_id || exId),
-            user_id: String(cd.user_id || ''),
-            confirmed_at: toIsoString(cd.confirmed_at),
-            notes: cd.notes ? String(cd.notes) : null,
-          };
-        }) ?? [];
-      confByExchange.set(exId, list);
+    const seenConfIds = new Set<string>();
+    [confOwnerSnap, confReqSnap].forEach((snap) => {
+      snap?.docs.forEach((c) => {
+        if (seenConfIds.has(c.id)) return;
+        seenConfIds.add(c.id);
+        const cd = c.data();
+        const exId = String(cd.exchange_id || '');
+        if (!exId) return;
+        const list = confByExchange.get(exId) ?? [];
+        list.push({
+          id: c.id,
+          exchange_id: exId,
+          user_id: String(cd.user_id || ''),
+          confirmed_at: toIsoString(cd.confirmed_at),
+          notes: cd.notes ? String(cd.notes) : null,
+        });
+        confByExchange.set(exId, list);
+      });
     });
 
     return exDocs
@@ -235,39 +239,35 @@ export async function confirmExchangeDeliveryRpc(params: {
 
   const exchangeRef = doc(db, 'exchanges', params.exchangeId);
 
-  // Pre-cargar catálogo de logros fuera de la tx (si falla por cualquier motivo, no bloquea la confirmación)
-  let achievementDocs: Array<{ id: string; reqOps: number }> = [];
   try {
-    const achievementsSnap = await getDocs(collection(db, 'achievements'));
-    achievementDocs = achievementsSnap.docs.map((d) => ({
-      id: d.id,
-      reqOps: Number(d.data().required_operations ?? 1),
-    }));
-  } catch {
-    achievementDocs = [];
-  }
-
-  try {
-    const finalStatus = await runTransaction(db, async (tx) => {
-      // 1. TODAS LAS LECTURAS ANTES DE CUALQUIER ESCRITURA
+    // FASE 1: Confirmación y cierre atómico principal (mínimas lecturas y sin bloqueo por campos opcionales)
+    const txContext = await runTransaction(db, async (tx) => {
       const exSnap = await tx.get(exchangeRef);
       if (!exSnap.exists()) throw new Error('Intercambio no encontrado.');
       const ex = exSnap.data();
 
-      if (ex.owner_id !== currentUid && ex.requester_id !== currentUid) {
+      const ownerId = String(ex.owner_id || '');
+      const requesterId = String(ex.requester_id || '');
+      if (ownerId !== currentUid && requesterId !== currentUid) {
         throw new Error('No perteneces a este intercambio.');
       }
       if (['completed', 'cancelled'].includes(ex.status)) {
-        return 'completed' as const;
+        return {
+          alreadyClosed: true,
+          status: ex.status as ExchangeRecord['status'],
+          ownerId,
+          requesterId,
+          otherUid: ownerId === currentUid ? requesterId : ownerId,
+          isGift: true,
+          qtyReserved: 1,
+          productData: null as Record<string, unknown> | null,
+          productId: '',
+        };
       }
 
       const myConfId = `${params.exchangeId}_${currentUid}`;
       const myConfRef = doc(db, 'exchange_confirmations', myConfId);
       const myConfSnap = await tx.get(myConfRef);
-
-      const otherUid = ex.owner_id === currentUid ? String(ex.requester_id) : String(ex.owner_id);
-      const otherConfRef = doc(db, 'exchange_confirmations', `${params.exchangeId}_${otherUid}`);
-      const otherConfSnap = await tx.get(otherConfRef);
 
       const matchId = String(ex.match_id || '').trim();
       const matchRef = matchId ? doc(db, 'matches', matchId) : null;
@@ -279,61 +279,13 @@ export async function confirmExchangeDeliveryRpc(params: {
       const productSnap = productRef ? await tx.get(productRef) : null;
       const product = productSnap?.exists() ? productSnap.data() : null;
 
-      const categoryId = String(product?.category_id || '').trim();
-      const catSnap = categoryId ? await tx.get(doc(db, 'categories', categoryId)) : null;
-      const catWeight = catSnap?.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
-
-      const ownerTreeRef = doc(db, 'user_tree_progress', String(ex.owner_id));
-      const requesterTreeRef = doc(db, 'user_tree_progress', String(ex.requester_id));
-      const impactRef = doc(db, 'impact_records', params.exchangeId);
-      const [ownerTreeSnap, requesterTreeSnap, impactSnap] = await Promise.all([
-        tx.get(ownerTreeRef),
-        tx.get(requesterTreeRef),
-        tx.get(impactRef),
-      ]);
-
-      const isGift = match ? match.modality === 'gift' : true;
-      const participantUpdates = [
-        { uid: String(ex.owner_id), snap: ownerTreeSnap },
-        { uid: String(ex.requester_id), snap: requesterTreeSnap },
-      ]
-        .filter((p) => Boolean(p.uid))
-        .map((p) => {
-          const prev = p.snap.exists()
-            ? p.snap.data()
-            : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
-          const alreadyCounted = prev.last_exchange_id === params.exchangeId;
-          const nextOps = Number(prev.completed_operations ?? 0) + (alreadyCounted ? 0 : 1);
-          return {
-            uid: p.uid,
-            alreadyCounted,
-            nextOps,
-            nextGifts: Number(prev.completed_gifts ?? 0) + (alreadyCounted ? 0 : isGift ? 1 : 0),
-            nextEx: Number(prev.completed_exchanges ?? 0) + (alreadyCounted ? 0 : isGift ? 0 : 1),
-          };
-        });
-
-      const unlockedToCreate: { recId: string; uid: string; achId: string }[] = [];
-      for (const p of participantUpdates) {
-        for (const achDoc of achievementDocs) {
-          if (p.nextOps >= achDoc.reqOps) {
-            const recId = `${p.uid}_${achDoc.id}`;
-            const existingUa = await tx.get(doc(db, 'user_achievements', recId));
-            if (!existingUa.exists()) {
-              unlockedToCreate.push({ recId, uid: p.uid, achId: achDoc.id });
-            }
-          }
-        }
-      }
-
-      // 2. ESCRITURAS ATÓMICAS DE CONFIRMACIÓN Y CIERRE AUTOMÁTICO INMEDIATO
       if (!myConfSnap.exists()) {
         tx.set(myConfRef, {
           id: myConfId,
           exchange_id: params.exchangeId,
           user_id: currentUid,
-          owner_id: ex.owner_id,
-          requester_id: ex.requester_id,
+          owner_id: ownerId,
+          requester_id: requesterId,
           confirmed_at: serverTimestamp(),
           notes: params.notes?.trim() || null,
           measured_weight_kg:
@@ -379,79 +331,141 @@ export async function confirmExchangeDeliveryRpc(params: {
         });
       }
 
-      for (const p of participantUpdates) {
-        if (!p.alreadyCounted) {
-          tx.set(doc(db, 'user_tree_progress', p.uid), {
-            user_id: p.uid,
-            completed_operations: p.nextOps,
-            completed_gifts: p.nextGifts,
-            completed_exchanges: p.nextEx,
-            current_stage: computeTreeStage(p.nextOps),
-            last_exchange_id: params.exchangeId,
-            updated_at: serverTimestamp(),
+      return {
+        alreadyClosed: false,
+        status: 'completed' as const,
+        ownerId,
+        requesterId,
+        otherUid: ownerId === currentUid ? requesterId : ownerId,
+        isGift: match ? match.modality !== 'exchange' : true,
+        qtyReserved,
+        productData: product ?? null,
+        productId,
+      };
+    });
+
+    // FASE 2: Efectos posteriores no bloqueantes (Árbol Circular, Logros, Impacto y Notificación)
+    if (!txContext.alreadyClosed) {
+      const participants = Array.from(new Set([txContext.ownerId, txContext.requesterId].filter(Boolean)));
+      let achievementDocs: Array<{ id: string; reqOps: number }> = [];
+      try {
+        const achSnap = await getDocs(collection(db, 'achievements'));
+        achievementDocs = achSnap.docs.map((d) => ({
+          id: d.id,
+          reqOps: Number(d.data().required_operations ?? 1),
+        }));
+      } catch {
+        achievementDocs = [];
+      }
+
+      for (const uid of participants) {
+        try {
+          const treeRef = doc(db, 'user_tree_progress', uid);
+          const nextOps = await runTransaction(db, async (tx) => {
+            const snap = await tx.get(treeRef);
+            const prev = snap.exists()
+              ? snap.data()
+              : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
+            if (prev.last_exchange_id === params.exchangeId) {
+              return Number(prev.completed_operations ?? 0);
+            }
+            const ops = Number(prev.completed_operations ?? 0) + 1;
+            tx.set(treeRef, {
+              user_id: uid,
+              completed_operations: ops,
+              completed_gifts: Number(prev.completed_gifts ?? 0) + (txContext.isGift ? 1 : 0),
+              completed_exchanges: Number(prev.completed_exchanges ?? 0) + (txContext.isGift ? 0 : 1),
+              current_stage: computeTreeStage(ops),
+              last_exchange_id: params.exchangeId,
+              updated_at: serverTimestamp(),
+            });
+            return ops;
           });
+
+          for (const ach of achievementDocs) {
+            if (nextOps >= ach.reqOps) {
+              try {
+                const recId = `${uid}_${ach.id}`;
+                const uaRef = doc(db, 'user_achievements', recId);
+                const uaSnap = await getDoc(uaRef);
+                if (!uaSnap.exists()) {
+                  await setDoc(uaRef, {
+                    id: recId,
+                    user_id: uid,
+                    achievement_id: ach.id,
+                    exchange_id: params.exchangeId,
+                    unlocked_at: serverTimestamp(),
+                  });
+                }
+              } catch {
+                // No bloquea si un logro ya existía
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Actualización secundaria de árbol/logros omitida:', err);
         }
       }
 
-      for (const ua of unlockedToCreate) {
-        tx.set(doc(db, 'user_achievements', ua.recId), {
-          id: ua.recId,
-          user_id: ua.uid,
-          achievement_id: ua.achId,
-          exchange_id: params.exchangeId,
-          unlocked_at: serverTimestamp(),
-        });
+      if (txContext.productData) {
+        try {
+          const impactRef = doc(db, 'impact_records', params.exchangeId);
+          const impactSnap = await getDoc(impactRef);
+          if (!impactSnap.exists()) {
+            const catId = String(txContext.productData.category_id || '').trim();
+            const catSnap = catId ? await getDoc(doc(db, 'categories', catId)).catch(() => null) : null;
+            const catWeight = catSnap?.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
+            const measured =
+              typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
+                ? params.measuredWeightKg
+                : 0;
+            const totalWeight =
+              measured > 0 ? measured : Number((catWeight * txContext.qtyReserved).toFixed(2));
+
+            await setDoc(impactRef, {
+              id: params.exchangeId,
+              exchange_id: params.exchangeId,
+              product_id: String(txContext.productData.id || txContext.productId || params.exchangeId),
+              category_id: catId || 'otros',
+              commune_id: String(txContext.productData.commune_id || 'castro'),
+              sector_id: txContext.productData.sector_id ? String(txContext.productData.sector_id) : null,
+              modality: txContext.isGift ? 'gift' : 'exchange',
+              quantity: txContext.qtyReserved,
+              weight_kg: totalWeight,
+              weight_type: measured > 0 ? 'measured' : 'estimated',
+              created_at: serverTimestamp(),
+            });
+          }
+        } catch (err) {
+          console.warn('Registro de impacto secundario omitido:', err);
+        }
       }
 
-      if (!impactSnap.exists() && product) {
-        const otherMeasured = otherConfSnap.exists()
-          ? Number(otherConfSnap.data().measured_weight_kg || 0)
-          : 0;
-        const measured =
-          typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
-            ? params.measuredWeightKg
-            : otherMeasured;
-        const totalWeight =
-          measured > 0 ? measured : Number((catWeight * qtyReserved).toFixed(2));
-
-        tx.set(impactRef, {
-          id: params.exchangeId,
-          exchange_id: params.exchangeId,
-          product_id: String(product.id || productId),
-          category_id: categoryId || 'otros',
-          commune_id: String(product.commune_id || 'castro'),
-          sector_id: product.sector_id ? String(product.sector_id) : null,
-          modality: match?.modality === 'exchange' ? 'exchange' : 'gift',
-          quantity: qtyReserved,
-          weight_kg: totalWeight,
-          weight_type: measured > 0 ? 'measured' : 'estimated',
-          created_at: serverTimestamp(),
-        });
+      if (txContext.otherUid && txContext.otherUid !== currentUid) {
+        try {
+          const notifRef = doc(collection(db, 'notifications'));
+          await setDoc(notifRef, {
+            id: notifRef.id,
+            user_id: txContext.otherUid,
+            event_type: 'exchange_completed',
+            title: '¡Entrega circular completada!',
+            body: 'La entrega fue confirmada. Tu Árbol Circular creció y ya puedes dejar una reseña.',
+            link_path: '/mi-arbol',
+            is_read: false,
+            created_at: serverTimestamp(),
+          });
+        } catch (err) {
+          console.warn('Notificación secundaria omitida:', err);
+        }
       }
-
-      if (otherUid && otherUid !== currentUid) {
-        const notifRef = doc(collection(db, 'notifications'));
-        tx.set(notifRef, {
-          id: notifRef.id,
-          user_id: otherUid,
-          event_type: 'exchange_completed',
-          title: '¡Entrega circular completada!',
-          body: 'La entrega fue confirmada. Tu Árbol Circular creció y ya puedes dejar una reseña.',
-          link_path: '/mi-arbol',
-          is_read: false,
-          created_at: serverTimestamp(),
-        });
-      }
-
-      return 'completed' as const;
-    });
+    }
 
     const updatedSnap = await getDoc(exchangeRef);
     const d = updatedSnap.data() ?? {};
     return {
       id: updatedSnap.id,
       match_id: String(d.match_id || ''),
-      status: finalStatus,
+      status: (d.status as ExchangeRecord['status']) || txContext.status,
       proposed_date: d.proposed_date ? String(d.proposed_date) : null,
       proposed_time_slot: d.proposed_time_slot ? String(d.proposed_time_slot) : null,
       meeting_point_label: d.meeting_point_label ? String(d.meeting_point_label) : null,
@@ -679,7 +693,11 @@ export async function submitExchangeReviewRpc(params: {
 export async function listUserReviews(userId: string): Promise<Review[]> {
   try {
     const snap = await getDocs(
-      query(collection(db, 'reviews'), where('reviewed_user_id', '==', userId))
+      query(
+        collection(db, 'reviews'),
+        where('reviewed_user_id', '==', userId),
+        where('is_flagged', '==', false)
+      )
     );
     if (snap.empty) return [];
 

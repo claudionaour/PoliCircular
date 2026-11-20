@@ -36,8 +36,8 @@ check('Productos creados siempre inician en pending', rules.includes("incoming()
 // 7. Mensajes inmutables y validación de bloqueo en conversaciones
 check('Mensajes bloqueados validan is_blocked == false y sender_id == auth.uid', rules.includes('is_blocked == false') && rules.includes('incoming().sender_id == request.auth.uid'));
 
-// 8. Confirmación bilateral obligatoria para completar intercambio
-check('Completar intercambio exige confirmaciones de owner y requester', rules.includes('exchange_confirmations/$(exchangeId + \'_\' + existing().owner_id)') && rules.includes('exchange_confirmations/$(exchangeId + \'_\' + existing().requester_id)'));
+// 8. Confirmación automática obligatoria para completar intercambio
+check('Completar intercambio exige confirmación registrada del participante', rules.includes("exchange_confirmations/$(exchangeId + '_' + request.auth.uid)"));
 
 // 9. Reseñas solo sobre intercambios completed y sin auto-reseña
 check('Reseña exige exchange completed y reviewer != reviewed_user', rules.includes("data.status == 'completed'") && rules.includes('data.reviewer_id != data.reviewed_user_id'));

@@ -198,8 +198,8 @@ service cloud.firestore {
         && isValidId(data.id)
         && isValidId(data.owner_id)
         && isValidId(data.category_id)
-        && data.title is string && data.title.size() >= 3 && data.title.size() <= 120
-        && data.description is string && data.description.size() >= 10 && data.description.size() <= 2000
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 2000
         && data.condition in ['new', 'good', 'needs_repair', 'for_recycling']
         && data.modality in ['gift', 'exchange']
         && optString(data, 'desired_exchange_items', 500)
@@ -208,7 +208,7 @@ service cloud.firestore {
         && data.reserved_quantity is int && data.reserved_quantity >= 0 && data.reserved_quantity <= data.total_quantity
         && isValidId(data.commune_id)
         && optString(data, 'sector_id', 128)
-        && data.delivery_method is string && data.delivery_method.size() >= 4 && data.delivery_method.size() <= 120
+        && optString(data, 'delivery_method', 120)
         && data.status in ['draft', 'pending', 'approved', 'reserved', 'in_delivery', 'completed', 'rejected', 'suspended', 'archived', 'expired']
         && optString(data, 'moderation_notes', 500)
         && optString(data, 'moderated_by', 128)
@@ -598,7 +598,8 @@ service cloud.firestore {
     // =========================================================================
     match /products/{productId} {
       allow get: if isValidId(productId) && (
-        resource.data.status in ['approved', 'reserved', 'in_delivery', 'completed']
+        resource == null
+        || resource.data.status in ['approved', 'reserved', 'in_delivery', 'completed']
         || (isSignedIn() && resource.data.owner_id == request.auth.uid)
         || isModerator()
       );
@@ -609,6 +610,9 @@ service cloud.firestore {
       allow create: if isVerifiedUser() && isValidId(productId)
         && isValidProduct(incoming(), productId)
         && incoming().owner_id == request.auth.uid
+        && incoming().title.size() >= 3
+        && incoming().description.size() >= 10
+        && incoming().delivery_method is string && incoming().delivery_method.size() >= 4
         && incoming().status == 'pending'
         && incoming().available_quantity == incoming().total_quantity
         && incoming().reserved_quantity == 0
@@ -721,7 +725,7 @@ service cloud.firestore {
 
     match /matches/{matchId} {
       allow get: if isSignedIn() && isValidId(matchId)
-        && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
+        && (resource == null || resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid))
         || isModerator();
       allow create: if isVerifiedUser() && isValidId(matchId)
@@ -805,7 +809,7 @@ service cloud.firestore {
     // =========================================================================
     match /exchanges/{exchangeId} {
       allow get: if isSignedIn() && isValidId(exchangeId)
-        && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
+        && (resource == null || resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid))
         || isModerator();
       allow create: if isVerifiedUser() && isValidId(exchangeId)
@@ -840,6 +844,7 @@ service cloud.firestore {
                 incoming().status == 'completed'
                 && (
                   existsAfter(/databases/$(database)/documents/exchange_confirmations/$(exchangeId + '_' + request.auth.uid))
+                  || exists(/databases/$(database)/documents/exchange_confirmations/$(exchangeId + '_' + request.auth.uid))
                   || isAdmin()
                 )
               )
@@ -855,7 +860,7 @@ service cloud.firestore {
 
     match /exchange_confirmations/{confirmationId} {
       allow get: if isSignedIn() && isValidId(confirmationId)
-        && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
+        && (resource == null || resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid))
         || isModerator();
       allow create: if isSignedIn() && isValidId(confirmationId)
@@ -875,7 +880,9 @@ service cloud.firestore {
     // =========================================================================
     match /reviews/{reviewId} {
       allow get: if isValidId(reviewId);
-      allow list: if resource.data.is_flagged is bool;
+      allow list: if resource.data.is_flagged == false
+        || (isSignedIn() && (resource.data.reviewer_id == request.auth.uid || resource.data.reviewed_user_id == request.auth.uid))
+        || isModerator();
       allow create: if isSignedIn() && isValidId(reviewId)
         && isValidReview(incoming(), reviewId)
         && incoming().reviewer_id == request.auth.uid
@@ -929,7 +936,7 @@ service cloud.firestore {
     // CIRCULAR TREE, ACHIEVEMENTS, IMPACT, NOTIFICATIONS & EDUCATION
     // =========================================================================
     match /user_tree_progress/{userId} {
-      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow get: if isSignedIn() && isValidId(userId);
       allow list: if (isSignedIn() && resource.data.user_id == request.auth.uid) || isAdmin();
       allow create: if isSignedIn() && isValidId(userId)
         && isValidTreeProgress(incoming(), userId)
@@ -953,7 +960,10 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.owner_id == request.auth.uid
               || getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.requester_id == request.auth.uid
             )
-            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
+            && (
+              existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
+              || exists(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
+            )
           )
         );
       allow update: if isSignedIn() && isValidId(userId)
@@ -962,7 +972,7 @@ service cloud.firestore {
         && (
           isAdmin()
           || (
-            incoming().completed_operations == existing().completed_operations + 1
+            (!('completed_operations' in existing()) || incoming().completed_operations == existing().completed_operations + 1)
             && isValidId(incoming().last_exchange_id)
             && (!('last_exchange_id' in existing()) || incoming().last_exchange_id != existing().last_exchange_id)
             && getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.status == 'completed'
@@ -974,14 +984,17 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.owner_id == request.auth.uid
               || getAfter(/databases/$(database)/documents/exchanges/$(incoming().last_exchange_id)).data.requester_id == request.auth.uid
             )
-            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
+            && (
+              existsAfter(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
+              || exists(/databases/$(database)/documents/exchange_confirmations/$(incoming().last_exchange_id + '_' + request.auth.uid))
+            )
           )
         );
       allow delete: if false;
     }
 
     match /user_achievements/{recId} {
-      allow get: if isSignedIn() && isValidId(recId) && (resource.data.user_id == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(recId);
       allow list: if (isSignedIn() && resource.data.user_id == request.auth.uid) || isAdmin();
       allow create: if isSignedIn() && isValidId(recId)
         && isValidUserAchievement(incoming(), recId)

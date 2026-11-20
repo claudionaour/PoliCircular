@@ -18,6 +18,7 @@ import {
   markExchangeDispute,
   proposeExchangeDelivery,
 } from '../../services/exchangeService';
+import { translateFirebaseError } from '../../services/firebase';
 import { OsmSectorMap } from '../../components/OsmSectorMap';
 import { ReviewFormModal } from '../reviews/ReviewFormModal';
 import { ReportModal } from '../../components/ReportModal';
@@ -56,7 +57,7 @@ export const ExchangesPage: React.FC = () => {
       setExchanges(list);
       setReviewedIds(revIds);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error cargando entregas.');
+      setError(translateFirebaseError(err));
     } finally {
       setLoading(false);
     }
@@ -83,7 +84,7 @@ export const ExchangesPage: React.FC = () => {
       setActiveCoordId(null);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible guardar la coordinación.');
+      setError(translateFirebaseError(err));
     }
   };
 
@@ -98,7 +99,7 @@ export const ExchangesPage: React.FC = () => {
       setSuccessMsg('¡Entrega confirmada y completada automáticamente! Tu Árbol Circular ha sido actualizado.');
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible registrar tu confirmación.');
+      setError(translateFirebaseError(err));
     } finally {
       setSubmittingConfirmId(null);
     }
@@ -110,7 +111,7 @@ export const ExchangesPage: React.FC = () => {
       await cancelExchangeAgreementRpc(exchangeId, 'Cancelado por participante durante coordinación');
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo cancelar.');
+      setError(translateFirebaseError(err));
     }
   };
 
@@ -121,7 +122,7 @@ export const ExchangesPage: React.FC = () => {
       setReportTargetId(exchangeId);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo reportar disputa.');
+      setError(translateFirebaseError(err));
     }
   };
 
