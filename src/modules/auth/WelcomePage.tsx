@@ -111,14 +111,14 @@ export const WelcomePage: React.FC = () => {
             <ShieldCheck className="h-6 w-6 text-[#6EE7B7]" />
             <h2 className="font-display font-bold text-base text-white">Comunidad protegida</h2>
             <p className="text-sm text-slate-200 leading-relaxed">
-              Moderación obligatoria, confirmación bilateral de entregas y protección de domicilios.
+              Moderación obligatoria, confirmación automática al hacer Match y protección de domicilios.
             </p>
           </div>
           <div className="bg-[#102C49] rounded-2xl p-6 border border-[#244B73] space-y-2.5">
             <Trees className="h-6 w-6 text-[#6EE7B7]" />
             <h2 className="font-display font-bold text-base text-white">Árbol e Impacto real</h2>
             <p className="text-sm text-slate-200 leading-relaxed">
-              Cada operación confirmada por ambas partes hace crecer tu Árbol Circular y mide impacto.
+              Cada Match confirmado hace crecer tu Árbol Circular y registra el impacto ambiental real.
             </p>
           </div>
         </div>

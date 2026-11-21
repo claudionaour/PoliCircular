@@ -163,7 +163,9 @@ export const MatchRoomPage: React.FC = () => {
           >
             <Truck className="h-4 w-4" />
             <span>
-              Coordinar entrega ({exchange ? EXCHANGE_STATUS_LABELS[exchange.status] : 'Pendiente'})
+              {exchange?.status === 'completed'
+                ? 'Entrega confirmada · Ver detalle'
+                : `Coordinar entrega (${exchange ? EXCHANGE_STATUS_LABELS[exchange.status] : 'Pendiente'})`}
             </span>
           </Link>
           <button

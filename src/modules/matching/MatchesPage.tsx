@@ -11,6 +11,7 @@ import {
 } from '../../services/matchingService';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { formatChileDate, MODALITY_LABELS } from '../../utils/formatters';
+import { translateFirebaseError } from '../../services/firebase';
 import type { MatchRecord, MatchRequest } from '../../types/domain';
 
 type Tab = 'matches' | 'received' | 'sent' | 'favorites';
@@ -55,7 +56,7 @@ export const MatchesPage: React.FC = () => {
       const matchId = await acceptMatchRequestRpc(reqId);
       navigate(`/matches/${matchId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo aceptar la solicitud.');
+      setError(translateFirebaseError(err));
     }
   };
 
@@ -65,7 +66,7 @@ export const MatchesPage: React.FC = () => {
       await updateMatchRequestStatus(reqId, status);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible actualizar la solicitud.');
+      setError(translateFirebaseError(err));
     }
   };
 
@@ -77,7 +78,7 @@ export const MatchesPage: React.FC = () => {
       <div>
         <h1 className="font-display text-2xl font-bold text-white">Mis Match y Solicitudes</h1>
         <p className="text-sm text-slate-200">
-          Un interés guardado no es un Match. El Match nace cuando el propietario acepta la solicitud y reserva las unidades.
+          Al aceptar una solicitud nace el Match, se confirma automáticamente la entrega y recepción del artículo y crece tu Árbol Circular. El chat privado queda abierto para coordinar el punto de encuentro.
         </p>
       </div>
 
@@ -133,6 +134,9 @@ export const MatchesPage: React.FC = () => {
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-[#FFA94D]">
                         {MODALITY_LABELS[m.modality]} · {m.quantity_reserved} u.
+                        {m.status === 'completed' && (
+                          <span className="text-[#6EE7B7]"> · Entrega confirmada</span>
+                        )}
                       </p>
                       <h3 className="font-display font-bold text-sm text-white truncate">
                         {m.target_product?.title}
@@ -200,7 +204,7 @@ export const MatchesPage: React.FC = () => {
                     className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454]"
                   >
                     <Check className="h-4 w-4" />
-                    <span>Aceptar y generar Match</span>
+                    <span>Aceptar Match y confirmar entrega</span>
                   </button>
                 </div>
               </div>

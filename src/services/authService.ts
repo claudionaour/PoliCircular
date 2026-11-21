@@ -1,4 +1,3 @@
-import { Capacitor } from '@capacitor/core';
 import {
   GoogleAuthProvider,
   confirmPasswordReset,
@@ -163,12 +162,7 @@ export async function initializeUserDocuments(
   await batch.commit();
 }
 
-const PUBLIC_WEB_ORIGIN = 'https://ais-pre-dj7zeddnfchgopwqeu36fl-839173396062.us-east1.run.app';
-
 function getAuthContinueOrigin(): string {
-  if (Capacitor.isNativePlatform()) {
-    return PUBLIC_WEB_ORIGIN;
-  }
   return window.location.origin;
 }
 

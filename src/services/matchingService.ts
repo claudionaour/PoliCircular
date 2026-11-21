@@ -22,6 +22,7 @@ import {
   toIsoString,
   toNullableIsoString,
 } from './firebase';
+import { applyExchangeCompletionSideEffects } from './exchangeService';
 import {
   fetchImagesByProductIds,
   fetchLookupMaps,
@@ -257,7 +258,7 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
   const reqRef = doc(db, 'match_requests', requestId);
 
   try {
-    return await runTransaction(db, async (tx) => {
+    const txResult = await runTransaction(db, async (tx) => {
       const reqSnap = await tx.get(reqRef);
       if (!reqSnap.exists()) throw new Error('Solicitud no encontrada.');
       const reqData = reqSnap.data();
@@ -274,17 +275,27 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
       if (!productSnap.exists()) throw new Error('Publicación no encontrada.');
       const prod = productSnap.data();
 
-      const qty = Number(reqData.requested_quantity ?? 1);
+      const qty = Math.max(1, Math.round(Number(reqData.requested_quantity ?? 1)));
       if (prod.status !== 'approved' || Number(prod.available_quantity) < qty) {
-        throw new Error('No queda suficiente cantidad disponible para reservar.');
+        throw new Error('No queda suficiente cantidad disponible para completar el intercambio.');
       }
 
-      const nextAvailable = Number(prod.available_quantity) - qty;
-      const nextReserved = Number(prod.reserved_quantity) + qty;
+      const nextAvailable = Math.max(0, Number(prod.available_quantity) - qty);
+      const nextReserved = Math.max(0, Number(prod.reserved_quantity ?? 0));
+      const nextProdStatus =
+        nextAvailable === 0 && nextReserved === 0
+          ? 'completed'
+          : nextAvailable === 0
+            ? 'reserved'
+            : 'approved';
 
       const matchRef = doc(collection(db, 'matches'));
       const convRef = doc(collection(db, 'conversations'));
       const exchangeRef = doc(collection(db, 'exchanges'));
+      const ownerConfId = `${exchangeRef.id}_${reqData.owner_id}`;
+      const requesterConfId = `${exchangeRef.id}_${reqData.requester_id}`;
+      const ownerConfRef = doc(db, 'exchange_confirmations', ownerConfId);
+      const requesterConfRef = doc(db, 'exchange_confirmations', requesterConfId);
       const notifRef = doc(collection(db, 'notifications'));
 
       tx.update(reqRef, {
@@ -295,7 +306,8 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
       tx.update(productRef, {
         available_quantity: nextAvailable,
         reserved_quantity: nextReserved,
-        status: nextAvailable === 0 ? 'reserved' : 'approved',
+        status: nextProdStatus,
+        sync_exchange_id: exchangeRef.id,
         updated_at: serverTimestamp(),
       });
 
@@ -308,7 +320,7 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
         requester_id: reqData.requester_id,
         modality: reqData.modality,
         quantity_reserved: qty,
-        status: 'active',
+        status: 'completed',
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       });
@@ -329,24 +341,68 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
         match_id: matchRef.id,
         owner_id: reqData.owner_id,
         requester_id: reqData.requester_id,
-        status: 'pending',
+        status: 'completed',
+        completed_at: serverTimestamp(),
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
+      });
+
+      tx.set(ownerConfRef, {
+        id: ownerConfId,
+        exchange_id: exchangeRef.id,
+        user_id: reqData.owner_id,
+        owner_id: reqData.owner_id,
+        requester_id: reqData.requester_id,
+        confirmed_at: serverTimestamp(),
+        notes: 'Entrega confirmada automáticamente al generar Match.',
+        measured_weight_kg: null,
+      });
+
+      tx.set(requesterConfRef, {
+        id: requesterConfId,
+        exchange_id: exchangeRef.id,
+        user_id: reqData.requester_id,
+        owner_id: reqData.owner_id,
+        requester_id: reqData.requester_id,
+        confirmed_at: serverTimestamp(),
+        notes: 'Recepción confirmada automáticamente al generar Match.',
+        measured_weight_kg: null,
       });
 
       tx.set(notifRef, {
         id: notifRef.id,
         user_id: reqData.requester_id,
         event_type: 'match_accepted',
-        title: '¡Tienes un nuevo Match Circular!',
-        body: `Aceptaron tu solicitud por “${prod.title}”. Ya puedes coordinar la entrega.`,
+        title: '¡Match Circular y entrega confirmados!',
+        body: `Aceptaron tu solicitud por “${prod.title}”. La entrega y recepción quedaron confirmadas automáticamente y tu Árbol Circular creció.`,
         link_path: `/matches/${matchRef.id}`,
         is_read: false,
         created_at: serverTimestamp(),
       });
 
-      return matchRef.id;
+      return {
+        matchId: matchRef.id,
+        exchangeId: exchangeRef.id,
+        ownerId: String(reqData.owner_id),
+        requesterId: String(reqData.requester_id),
+        isGift: reqData.modality !== 'exchange',
+        qtyReserved: qty,
+        productData: prod as Record<string, unknown>,
+        productId: String(reqData.target_product_id),
+      };
     });
+
+    await applyExchangeCompletionSideEffects({
+      exchangeId: txResult.exchangeId,
+      ownerId: txResult.ownerId,
+      requesterId: txResult.requesterId,
+      isGift: txResult.isGift,
+      qtyReserved: txResult.qtyReserved,
+      productData: txResult.productData,
+      productId: txResult.productId,
+    });
+
+    return txResult.matchId;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `match_requests/${requestId}`);
   }

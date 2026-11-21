@@ -172,22 +172,44 @@ export const acceptMatchRequest = onCall(async (request) => {
     const productSnap = await tx.get(productRef);
     if (!productSnap.exists) throw new HttpsError('not-found', 'Producto no encontrado.');
     const product = productSnap.data()!;
-    if (product.status !== 'approved' || product.available_quantity < reqData.requested_quantity) {
-      throw new HttpsError('failed-precondition', 'Stock disponible insuficiente para reservar.');
+    const qty = Math.max(1, Number(reqData.requested_quantity ?? 1));
+    if (product.status !== 'approved' || product.available_quantity < qty) {
+      throw new HttpsError('failed-precondition', 'Stock disponible insuficiente para completar el intercambio.');
     }
 
-    const nextAvailable = product.available_quantity - reqData.requested_quantity;
-    const nextReserved = product.reserved_quantity + reqData.requested_quantity;
+    const matchRef = db.collection('matches').doc();
+    const convRef = db.collection('conversations').doc();
+    const exchangeRef = db.collection('exchanges').doc();
+    const ownerTreeRef = db.collection('user_tree_progress').doc(reqData.owner_id);
+    const requesterTreeRef = db.collection('user_tree_progress').doc(reqData.requester_id);
+    const impactRef = db.collection('impact_records').doc(exchangeRef.id);
+    const categorySnap = product.category_id
+      ? await tx.get(db.collection('categories').doc(product.category_id))
+      : null;
+    const [ownerTreeSnap, requesterTreeSnap, achievementsSnap] = await Promise.all([
+      tx.get(ownerTreeRef),
+      tx.get(requesterTreeRef),
+      tx.get(db.collection('achievements')),
+    ]);
+
+    const nextAvailable = Math.max(0, Number(product.available_quantity) - qty);
+    const nextReserved = Math.max(0, Number(product.reserved_quantity ?? 0));
+    const nextProdStatus =
+      nextAvailable === 0 && nextReserved === 0
+        ? 'completed'
+        : nextAvailable === 0
+          ? 'reserved'
+          : 'approved';
 
     tx.update(reqRef, { status: 'accepted', updated_at: FieldValue.serverTimestamp() });
     tx.update(productRef, {
       available_quantity: nextAvailable,
       reserved_quantity: nextReserved,
-      status: nextAvailable === 0 ? 'reserved' : 'approved',
+      status: nextProdStatus,
+      sync_exchange_id: exchangeRef.id,
       updated_at: FieldValue.serverTimestamp(),
     });
 
-    const matchRef = db.collection('matches').doc();
     tx.set(matchRef, {
       id: matchRef.id,
       request_id: requestId,
@@ -196,13 +218,12 @@ export const acceptMatchRequest = onCall(async (request) => {
       owner_id: reqData.owner_id,
       requester_id: reqData.requester_id,
       modality: reqData.modality,
-      quantity_reserved: reqData.requested_quantity,
-      status: 'active',
+      quantity_reserved: qty,
+      status: 'completed',
       created_at: FieldValue.serverTimestamp(),
       updated_at: FieldValue.serverTimestamp(),
     });
 
-    const convRef = db.collection('conversations').doc();
     tx.set(convRef, {
       id: convRef.id,
       match_id: matchRef.id,
@@ -214,15 +235,93 @@ export const acceptMatchRequest = onCall(async (request) => {
       updated_at: FieldValue.serverTimestamp(),
     });
 
-    const exchangeRef = db.collection('exchanges').doc();
     tx.set(exchangeRef, {
       id: exchangeRef.id,
       match_id: matchRef.id,
       owner_id: reqData.owner_id,
       requester_id: reqData.requester_id,
-      status: 'pending',
+      status: 'completed',
+      completed_at: FieldValue.serverTimestamp(),
       created_at: FieldValue.serverTimestamp(),
       updated_at: FieldValue.serverTimestamp(),
+    });
+
+    const ownerConfRef = db.collection('exchange_confirmations').doc(`${exchangeRef.id}_${reqData.owner_id}`);
+    tx.set(ownerConfRef, {
+      id: ownerConfRef.id,
+      exchange_id: exchangeRef.id,
+      user_id: reqData.owner_id,
+      owner_id: reqData.owner_id,
+      requester_id: reqData.requester_id,
+      confirmed_at: FieldValue.serverTimestamp(),
+      notes: 'Entrega confirmada automáticamente al generar Match.',
+      measured_weight_kg: null,
+    });
+
+    const requesterConfRef = db.collection('exchange_confirmations').doc(`${exchangeRef.id}_${reqData.requester_id}`);
+    tx.set(requesterConfRef, {
+      id: requesterConfRef.id,
+      exchange_id: exchangeRef.id,
+      user_id: reqData.requester_id,
+      owner_id: reqData.owner_id,
+      requester_id: reqData.requester_id,
+      confirmed_at: FieldValue.serverTimestamp(),
+      notes: 'Recepción confirmada automáticamente al generar Match.',
+      measured_weight_kg: null,
+    });
+
+    const isGift = reqData.modality !== 'exchange';
+    for (const [uid, snap] of [
+      [reqData.owner_id, ownerTreeSnap],
+      [reqData.requester_id, requesterTreeSnap],
+    ] as const) {
+      const prev = snap.exists
+        ? snap.data()!
+        : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
+      if (prev.last_exchange_id !== exchangeRef.id) {
+        const nextOps = (prev.completed_operations || 0) + 1;
+        const nextGifts = (prev.completed_gifts || 0) + (isGift ? 1 : 0);
+        const nextEx = (prev.completed_exchanges || 0) + (isGift ? 0 : 1);
+        tx.set(db.collection('user_tree_progress').doc(uid), {
+          user_id: uid,
+          completed_operations: nextOps,
+          completed_gifts: nextGifts,
+          completed_exchanges: nextEx,
+          current_stage: computeTreeStage(nextOps),
+          last_exchange_id: exchangeRef.id,
+          updated_at: FieldValue.serverTimestamp(),
+        });
+
+        achievementsSnap.docs.forEach((achDoc) => {
+          const ach = achDoc.data();
+          if (nextOps >= ach.required_operations) {
+            const uaRef = db.collection('user_achievements').doc(`${uid}_${ach.id}`);
+            tx.set(uaRef, {
+              id: uaRef.id,
+              user_id: uid,
+              achievement_id: ach.id,
+              exchange_id: exchangeRef.id,
+              unlocked_at: FieldValue.serverTimestamp(),
+            });
+          }
+        });
+      }
+    }
+
+    const categoryWeight = categorySnap?.data()?.estimated_weight_kg || 1;
+    const totalWeight = Number((categoryWeight * qty).toFixed(2));
+    tx.set(impactRef, {
+      id: exchangeRef.id,
+      exchange_id: exchangeRef.id,
+      product_id: product.id,
+      category_id: product.category_id || 'otros',
+      commune_id: product.commune_id || 'castro',
+      sector_id: product.sector_id || null,
+      modality: reqData.modality || 'gift',
+      quantity: qty,
+      weight_kg: totalWeight,
+      weight_type: 'estimated',
+      created_at: FieldValue.serverTimestamp(),
     });
 
     const notifRef = db.collection('notifications').doc();
@@ -230,8 +329,8 @@ export const acceptMatchRequest = onCall(async (request) => {
       id: notifRef.id,
       user_id: reqData.requester_id,
       event_type: 'match_accepted',
-      title: '¡Tienes un nuevo Match Circular!',
-      body: `Aceptaron tu solicitud por “${product.title}”. Ya puedes coordinar la entrega en el chat.`,
+      title: '¡Match Circular y entrega confirmados!',
+      body: `Aceptaron tu solicitud por “${product.title}”. La entrega y recepción quedaron confirmadas automáticamente y tu Árbol Circular creció.`,
       link_path: `/matches/${matchRef.id}`,
       is_read: false,
       created_at: FieldValue.serverTimestamp(),

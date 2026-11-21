@@ -271,6 +271,126 @@ function classifyFirestoreFailure(error: unknown): {
   };
 }
 
+export async function applyExchangeCompletionSideEffects(params: {
+  exchangeId: string;
+  ownerId: string;
+  requesterId: string;
+  isGift: boolean;
+  qtyReserved: number;
+  productData: Record<string, unknown> | null;
+  productId?: string;
+  measuredWeightKg?: number | null;
+}): Promise<void> {
+  const participants = Array.from(new Set([params.ownerId, params.requesterId].filter(Boolean)));
+  let achievementDocs: Array<{ id: string; reqOps: number }> = [];
+  try {
+    const achSnap = await getDocs(collection(db, 'achievements'));
+    achievementDocs = achSnap.docs.map((d) => ({
+      id: d.id,
+      reqOps: Number(d.data().required_operations ?? 1),
+    }));
+  } catch (achListErr) {
+    console.warn('[ConfirmDeliveryDebug] 7a.achievements_list_skipped', classifyFirestoreFailure(achListErr));
+    achievementDocs = [];
+  }
+
+  for (const uid of participants) {
+    try {
+      const treeRef = doc(db, 'user_tree_progress', uid);
+      const nextOps = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(treeRef);
+        const prev = snap.exists()
+          ? snap.data()
+          : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
+        if (prev.last_exchange_id === params.exchangeId) {
+          return Number(prev.completed_operations ?? 0);
+        }
+        const ops = Number(prev.completed_operations ?? 0) + 1;
+        tx.set(treeRef, {
+          user_id: uid,
+          completed_operations: ops,
+          completed_gifts: Number(prev.completed_gifts ?? 0) + (params.isGift ? 1 : 0),
+          completed_exchanges: Number(prev.completed_exchanges ?? 0) + (params.isGift ? 0 : 1),
+          current_stage: computeTreeStage(ops),
+          last_exchange_id: params.exchangeId,
+          updated_at: serverTimestamp(),
+        });
+        return ops;
+      });
+      console.info('[ConfirmDeliveryDebug] 7b.post_tree_progress_ok', { uid, nextOps });
+
+      for (const ach of achievementDocs) {
+        if (nextOps >= ach.reqOps) {
+          try {
+            const recId = `${uid}_${ach.id}`;
+            const uaRef = doc(db, 'user_achievements', recId);
+            const uaSnap = await getDoc(uaRef);
+            if (!uaSnap.exists()) {
+              await setDoc(uaRef, {
+                id: recId,
+                user_id: uid,
+                achievement_id: ach.id,
+                exchange_id: params.exchangeId,
+                unlocked_at: serverTimestamp(),
+              });
+            }
+          } catch (uaErr) {
+            console.warn('[ConfirmDeliveryDebug] 7c.post_achievement_skipped', {
+              uid,
+              achievementId: ach.id,
+              ...classifyFirestoreFailure(uaErr),
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[ConfirmDeliveryDebug] 7d.post_tree_progress_failed', {
+        uid,
+        ...classifyFirestoreFailure(err),
+      });
+    }
+  }
+
+  if (params.productData) {
+    try {
+      const impactRef = doc(db, 'impact_records', params.exchangeId);
+      const impactSnap = await getDoc(impactRef);
+      if (!impactSnap.exists()) {
+        const catId = String(params.productData.category_id || '').trim();
+        const catSnap = catId ? await getDoc(doc(db, 'categories', catId)).catch(() => null) : null;
+        const catWeight = catSnap?.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
+        const measured =
+          typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
+            ? params.measuredWeightKg
+            : 0;
+        const safeQty = Math.max(1, Math.round(Number(params.qtyReserved || 1)));
+        const totalWeight =
+          measured > 0 ? measured : Number((catWeight * safeQty).toFixed(2));
+
+        await setDoc(impactRef, {
+          id: params.exchangeId,
+          exchange_id: params.exchangeId,
+          product_id: String(params.productData.id || params.productId || params.exchangeId),
+          category_id: catId || 'otros',
+          commune_id: String(params.productData.commune_id || 'castro'),
+          sector_id: params.productData.sector_id ? String(params.productData.sector_id) : null,
+          modality: params.isGift ? 'gift' : 'exchange',
+          quantity: safeQty,
+          weight_kg: totalWeight,
+          weight_type: measured > 0 ? 'measured' : 'estimated',
+          created_at: serverTimestamp(),
+        });
+        console.info('[ConfirmDeliveryDebug] 8a.post_impact_record_ok', {
+          exchangeId: params.exchangeId,
+          totalWeight,
+        });
+      }
+    } catch (err) {
+      console.warn('[ConfirmDeliveryDebug] 8b.post_impact_record_failed', classifyFirestoreFailure(err));
+    }
+  }
+}
+
 export async function confirmExchangeDeliveryRpc(params: {
   exchangeId: string;
   notes?: string;
@@ -567,113 +687,16 @@ export async function confirmExchangeDeliveryRpc(params: {
 
     // FASE 3: Efectos posteriores no bloqueantes (Árbol Circular, Logros, Impacto y Notificación)
     if (!txContext.alreadyClosed) {
-      const participants = Array.from(new Set([txContext.ownerId, txContext.requesterId].filter(Boolean)));
-      let achievementDocs: Array<{ id: string; reqOps: number }> = [];
-      try {
-        const achSnap = await getDocs(collection(db, 'achievements'));
-        achievementDocs = achSnap.docs.map((d) => ({
-          id: d.id,
-          reqOps: Number(d.data().required_operations ?? 1),
-        }));
-      } catch (achListErr) {
-        console.warn('[ConfirmDeliveryDebug] 7a.achievements_list_skipped', classifyFirestoreFailure(achListErr));
-        achievementDocs = [];
-      }
-
-      for (const uid of participants) {
-        try {
-          const treeRef = doc(db, 'user_tree_progress', uid);
-          const nextOps = await runTransaction(db, async (tx) => {
-            const snap = await tx.get(treeRef);
-            const prev = snap.exists()
-              ? snap.data()
-              : { completed_operations: 0, completed_gifts: 0, completed_exchanges: 0, last_exchange_id: null };
-            if (prev.last_exchange_id === params.exchangeId) {
-              return Number(prev.completed_operations ?? 0);
-            }
-            const ops = Number(prev.completed_operations ?? 0) + 1;
-            tx.set(treeRef, {
-              user_id: uid,
-              completed_operations: ops,
-              completed_gifts: Number(prev.completed_gifts ?? 0) + (isGift ? 1 : 0),
-              completed_exchanges: Number(prev.completed_exchanges ?? 0) + (isGift ? 0 : 1),
-              current_stage: computeTreeStage(ops),
-              last_exchange_id: params.exchangeId,
-              updated_at: serverTimestamp(),
-            });
-            return ops;
-          });
-          console.info('[ConfirmDeliveryDebug] 7b.post_tree_progress_ok', { uid, nextOps });
-
-          for (const ach of achievementDocs) {
-            if (nextOps >= ach.reqOps) {
-              try {
-                const recId = `${uid}_${ach.id}`;
-                const uaRef = doc(db, 'user_achievements', recId);
-                const uaSnap = await getDoc(uaRef);
-                if (!uaSnap.exists()) {
-                  await setDoc(uaRef, {
-                    id: recId,
-                    user_id: uid,
-                    achievement_id: ach.id,
-                    exchange_id: params.exchangeId,
-                    unlocked_at: serverTimestamp(),
-                  });
-                }
-              } catch (uaErr) {
-                console.warn('[ConfirmDeliveryDebug] 7c.post_achievement_skipped', {
-                  uid,
-                  achievementId: ach.id,
-                  ...classifyFirestoreFailure(uaErr),
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.warn('[ConfirmDeliveryDebug] 7d.post_tree_progress_failed', {
-            uid,
-            ...classifyFirestoreFailure(err),
-          });
-        }
-      }
-
-      if (productData) {
-        try {
-          const impactRef = doc(db, 'impact_records', params.exchangeId);
-          const impactSnap = await getDoc(impactRef);
-          if (!impactSnap.exists()) {
-            const catId = String(productData.category_id || '').trim();
-            const catSnap = catId ? await getDoc(doc(db, 'categories', catId)).catch(() => null) : null;
-            const catWeight = catSnap?.exists() ? Number(catSnap.data().estimated_weight_kg ?? 1) : 1;
-            const measured =
-              typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
-                ? params.measuredWeightKg
-                : 0;
-            const totalWeight =
-              measured > 0 ? measured : Number((catWeight * qtyReserved).toFixed(2));
-
-            await setDoc(impactRef, {
-              id: params.exchangeId,
-              exchange_id: params.exchangeId,
-              product_id: String(productData.id || productId || params.exchangeId),
-              category_id: catId || 'otros',
-              commune_id: String(productData.commune_id || 'castro'),
-              sector_id: productData.sector_id ? String(productData.sector_id) : null,
-              modality: isGift ? 'gift' : 'exchange',
-              quantity: qtyReserved,
-              weight_kg: totalWeight,
-              weight_type: measured > 0 ? 'measured' : 'estimated',
-              created_at: serverTimestamp(),
-            });
-            console.info('[ConfirmDeliveryDebug] 8a.post_impact_record_ok', {
-              exchangeId: params.exchangeId,
-              totalWeight,
-            });
-          }
-        } catch (err) {
-          console.warn('[ConfirmDeliveryDebug] 8b.post_impact_record_failed', classifyFirestoreFailure(err));
-        }
-      }
+      await applyExchangeCompletionSideEffects({
+        exchangeId: params.exchangeId,
+        ownerId: txContext.ownerId,
+        requesterId: txContext.requesterId,
+        isGift,
+        qtyReserved,
+        productData,
+        productId,
+        measuredWeightKg: params.measuredWeightKg,
+      });
 
       if (txContext.otherUid && txContext.otherUid !== currentUid) {
         try {

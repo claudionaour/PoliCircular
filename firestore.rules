@@ -642,13 +642,13 @@ service cloud.firestore {
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at'])
             && incoming().status == 'archived'
           ) ||
-          // Action: Owner reserving stock when accepting match request
+          // Action: Owner updating stock when accepting match request (auto-completing or reserving)
           (
             isVerifiedUser()
             && isOwner(existing().owner_id)
             && existing().status == 'approved'
-            && incoming().diff(existing()).affectedKeys().hasOnly(['available_quantity', 'reserved_quantity', 'status', 'updated_at'])
-            && incoming().status in ['approved', 'reserved']
+            && incoming().diff(existing()).affectedKeys().hasOnly(['available_quantity', 'reserved_quantity', 'status', 'sync_exchange_id', 'updated_at'])
+            && incoming().status in ['approved', 'reserved', 'completed']
             && incoming().available_quantity + incoming().reserved_quantity <= existing().total_quantity
           ) ||
           // Action: Exchange participant completing or cancelling reserved stock atomically
@@ -735,7 +735,7 @@ service cloud.firestore {
       allow create: if isVerifiedUser() && isValidId(matchId)
         && isValidMatch(incoming(), matchId)
         && incoming().owner_id == request.auth.uid
-        && incoming().status == 'active'
+        && incoming().status in ['active', 'completed']
         && incoming().created_at == request.time
         && getAfter(/databases/$(database)/documents/match_requests/$(incoming().request_id)).data.status == 'accepted';
       allow update: if isSignedIn() && isValidId(matchId)
@@ -819,7 +819,13 @@ service cloud.firestore {
       allow create: if isVerifiedUser() && isValidId(exchangeId)
         && isValidExchange(incoming(), exchangeId)
         && incoming().owner_id == request.auth.uid
-        && incoming().status == 'pending'
+        && (
+          incoming().status == 'pending'
+          || (
+            incoming().status == 'completed'
+            && existsAfter(/databases/$(database)/documents/exchange_confirmations/$(exchangeId + '_' + request.auth.uid))
+          )
+        )
         && incoming().created_at == request.time
         && existsAfter(/databases/$(database)/documents/matches/$(incoming().match_id));
       allow update: if isSignedIn() && isValidId(exchangeId)
@@ -869,13 +875,22 @@ service cloud.firestore {
         || isModerator();
       allow create: if isSignedIn() && isValidId(confirmationId)
         && isValidExchangeConfirmation(incoming(), confirmationId)
-        && incoming().user_id == request.auth.uid
-        && (incoming().owner_id == request.auth.uid || incoming().requester_id == request.auth.uid)
-        && confirmationId == (incoming().exchange_id + '_' + request.auth.uid)
+        && (
+          (
+            incoming().user_id == request.auth.uid
+            && (incoming().owner_id == request.auth.uid || incoming().requester_id == request.auth.uid)
+            && confirmationId == (incoming().exchange_id + '_' + request.auth.uid)
+          ) || (
+            incoming().owner_id == request.auth.uid
+            && incoming().user_id == incoming().requester_id
+            && confirmationId == (incoming().exchange_id + '_' + incoming().requester_id)
+            && getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.status == 'completed'
+          )
+        )
         && incoming().confirmed_at == request.time
-        && exists(/databases/$(database)/documents/exchanges/$(incoming().exchange_id))
-        && get(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.owner_id == incoming().owner_id
-        && get(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.requester_id == incoming().requester_id;
+        && existsAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id))
+        && getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.owner_id == incoming().owner_id
+        && getAfter(/databases/$(database)/documents/exchanges/$(incoming().exchange_id)).data.requester_id == incoming().requester_id;
       allow update, delete: if false;
     }
 

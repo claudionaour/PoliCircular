@@ -149,7 +149,7 @@ export const ExchangesPage: React.FC = () => {
           Mis intercambios y coordinación de entregas
         </h1>
         <p className="text-sm text-slate-200">
-          Al presionar Confirmar entrega, la operación se confirma y finaliza automáticamente por cualquiera de los participantes. Nunca se publican domicilios particulares.
+          Cada vez que haces Match en una publicación, la entrega y recepción se confirman automáticamente. Aquí puedes revisar tu historial, dejar reseñas o coordinar un punto público de encuentro.
         </p>
       </div>
 
@@ -255,7 +255,7 @@ export const ExchangesPage: React.FC = () => {
                     <span className="text-slate-300 block">Estado de confirmación</span>
                     <strong className="text-white">
                       {ex.status === 'completed'
-                        ? 'Confirmada y completada'
+                        ? 'Entrega y recepción confirmadas'
                         : iConfirmed || otherConfirmed
                           ? 'Confirmación registrada'
                           : 'Pendiente'}
