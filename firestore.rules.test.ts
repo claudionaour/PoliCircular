@@ -94,5 +94,12 @@ check(
   matchingSrc.includes("where('participant_a', '=='") &&
     matchingSrc.includes('where(roleField')
 );
+check(
+  'acceptMatchRequestRpc crea conversación determinística conv_${matchRef.id}, mensaje inicial automático y confirmación bilateral',
+  matchingSrc.includes('`conv_${matchRef.id}`') &&
+    matchingSrc.includes("doc(collection(db, 'messages'))") &&
+    matchingSrc.includes('ownerConfRef') &&
+    matchingSrc.includes('requesterConfRef')
+);
 
 console.log('\nTodos los invariantes de firestore.rules superaron la verificación TDD.');

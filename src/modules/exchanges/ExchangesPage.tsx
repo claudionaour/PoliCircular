@@ -41,6 +41,7 @@ export const ExchangesPage: React.FC = () => {
   const [meetingLng, setMeetingLng] = useState<number | null>(-73.7644);
 
   const [submittingConfirmId, setSubmittingConfirmId] = useState<string | null>(null);
+  const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [reviewTarget, setReviewTarget] = useState<{ exchangeId: string; name: string } | null>(null);
@@ -68,8 +69,9 @@ export const ExchangesPage: React.FC = () => {
   }, [loadData]);
 
   const handleSaveCoordination = async (exchangeId: string, agreed: boolean) => {
-    if (!user) return;
+    if (!user || busyActionId) return;
     setError(null);
+    setBusyActionId(exchangeId);
     try {
       await proposeExchangeDelivery({
         exchangeId,
@@ -82,13 +84,17 @@ export const ExchangesPage: React.FC = () => {
         agreed,
       });
       setActiveCoordId(null);
+      setSuccessMsg('Propuesta de punto de encuentro actualizada.');
       await loadData();
     } catch (err) {
       setError(translateFirebaseError(err));
+    } finally {
+      setBusyActionId(null);
     }
   };
 
   const handleConfirmDelivery = async (exchangeId: string) => {
+    if (submittingConfirmId) return;
     setError(null);
     setSuccessMsg(null);
     setSubmittingConfirmId(exchangeId);
@@ -108,7 +114,7 @@ export const ExchangesPage: React.FC = () => {
         exchangeId,
         newStatus: updated.status,
       });
-      setSuccessMsg('¡Entrega confirmada y completada automáticamente! Tu Árbol Circular ha sido actualizado.');
+      setSuccessMsg('¡Entrega y recepción confirmadas! Tu Árbol Circular ha sido actualizado.');
       await loadData();
     } catch (err) {
       console.error('[ConfirmDeliveryDebug] 12.ui_caught_error', {
@@ -122,23 +128,31 @@ export const ExchangesPage: React.FC = () => {
   };
 
   const handleCancel = async (exchangeId: string) => {
+    if (busyActionId) return;
     setError(null);
+    setBusyActionId(exchangeId);
     try {
       await cancelExchangeAgreementRpc(exchangeId, 'Cancelado por participante durante coordinación');
       await loadData();
     } catch (err) {
       setError(translateFirebaseError(err));
+    } finally {
+      setBusyActionId(null);
     }
   };
 
   const handleDispute = async (exchangeId: string) => {
+    if (busyActionId) return;
     setError(null);
+    setBusyActionId(exchangeId);
     try {
       await markExchangeDispute(exchangeId);
       setReportTargetId(exchangeId);
       await loadData();
     } catch (err) {
       setError(translateFirebaseError(err));
+    } finally {
+      setBusyActionId(null);
     }
   };
 
@@ -169,9 +183,9 @@ export const ExchangesPage: React.FC = () => {
         <div className="h-44 rounded-2xl bg-[#102C49] border border-[#244B73] animate-pulse" />
       ) : exchanges.length === 0 ? (
         <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-8 text-center space-y-3">
-          <p className="font-display font-bold text-white">Sin entregas en curso</p>
+          <p className="font-display font-bold text-white">Sin intercambios registrados aún</p>
           <p className="text-sm text-slate-200">
-            Cuando aceptes o te acepten una solicitud en Mis Match, podrás coordinar la entrega aquí.
+            Cuando hagas Match en una publicación, tu operación aparecerá aquí con la entrega y recepción confirmadas automáticamente.
           </p>
           <Link to="/matches" className="inline-block px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold">
             Ir a Mis Match
@@ -231,37 +245,74 @@ export const ExchangesPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Resumen de coordinación actual */}
-                <div className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4 grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="flex items-start gap-2">
-                    <Calendar className="h-4 w-4 text-[#FFA94D] shrink-0 mt-0.5" />
+                {/* Resumen de estado y confirmación */}
+                {ex.status === 'completed' ? (
+                  <div className="rounded-xl bg-[#143D29]/70 border border-[#34D399]/35 p-4 space-y-2 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-semibold text-[#A7F3D0]">
+                        <CheckCircle2 className="h-4 w-4 text-[#6EE7B7] shrink-0" />
+                        <span>Entrega y recepción confirmadas automáticamente</span>
+                      </div>
+                      {ex.completed_at && (
+                        <span className="text-slate-200">
+                          Completado el {formatChileDate(ex.completed_at)}
+                        </span>
+                      )}
+                    </div>
+                    {(ex.proposed_date || ex.meeting_point_label) && (
+                      <div className="grid sm:grid-cols-2 gap-2 pt-2 border-t border-[#34D399]/20 text-slate-200">
+                        {ex.proposed_date && (
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-[#FFA94D]" />
+                            <span>
+                              {formatChileDate(ex.proposed_date)}
+                              {ex.proposed_time_slot ? ` · ${ex.proposed_time_slot}` : ''}
+                            </span>
+                          </div>
+                        )}
+                        {ex.meeting_point_label && (
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="h-3.5 w-3.5 text-[#FFA94D]" />
+                            <span>{ex.meeting_point_label}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-[#0B1E33] border border-[#244B73] p-4 grid sm:grid-cols-3 gap-3 text-xs">
+                    <div className="flex items-start gap-2">
+                      <Calendar className="h-4 w-4 text-[#FFA94D] shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-slate-300 block">Fecha y horario</span>
+                        <strong className="text-white">
+                          {ex.proposed_date
+                            ? `${formatChileDate(ex.proposed_date)} · ${ex.proposed_time_slot || ''}`
+                            : 'Acordar en el chat'}
+                        </strong>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-[#FFA94D] shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-slate-300 block">Punto de encuentro público</span>
+                        <strong className="text-white">
+                          {ex.meeting_point_label || 'Acordar en el chat'}
+                        </strong>
+                      </div>
+                    </div>
                     <div>
-                      <span className="text-slate-300 block">Fecha y horario</span>
+                      <span className="text-slate-300 block">Estado de confirmación</span>
                       <strong className="text-white">
-                        {ex.proposed_date ? `${formatChileDate(ex.proposed_date)} · ${ex.proposed_time_slot || ''}` : 'Por definir'}
+                        {ex.status === 'cancelled'
+                          ? 'Acuerdo cancelado'
+                          : iConfirmed || otherConfirmed
+                            ? 'Confirmación registrada'
+                            : 'Pendiente de confirmación'}
                       </strong>
                     </div>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-[#FFA94D] shrink-0 mt-0.5" />
-                    <div>
-                      <span className="text-slate-300 block">Punto de encuentro público</span>
-                      <strong className="text-white">
-                        {ex.meeting_point_label || 'Sin definir'}
-                      </strong>
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-slate-300 block">Estado de confirmación</span>
-                    <strong className="text-white">
-                      {ex.status === 'completed'
-                        ? 'Entrega y recepción confirmadas'
-                        : iConfirmed || otherConfirmed
-                          ? 'Confirmación registrada'
-                          : 'Pendiente'}
-                    </strong>
-                  </div>
-                </div>
+                )}
 
                 {/* Formulario de coordinación */}
                 {activeCoordId === ex.id && !isClosed && (
@@ -358,21 +409,22 @@ export const ExchangesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleConfirmDelivery(ex.id)}
-                        disabled={submittingConfirmId === ex.id}
+                        disabled={submittingConfirmId === ex.id || busyActionId === ex.id}
                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454] disabled:opacity-50"
                       >
                         <CheckCircle2 className="h-4 w-4" />
                         <span>
                           {submittingConfirmId === ex.id
                             ? 'Confirmando...'
-                            : 'Confirmar entrega'}
+                            : 'Confirmar entrega y recepción'}
                         </span>
                       </button>
 
                       <button
                         type="button"
+                        disabled={busyActionId === ex.id}
                         onClick={() => handleCancel(ex.id)}
-                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-red-300"
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-red-300 disabled:opacity-50"
                       >
                         <XCircle className="h-4 w-4" />
                         <span>Cancelar acuerdo</span>
@@ -380,8 +432,9 @@ export const ExchangesPage: React.FC = () => {
 
                       <button
                         type="button"
+                        disabled={busyActionId === ex.id}
                         onClick={() => handleDispute(ex.id)}
-                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-[#FDE68A] hover:bg-[#2A2015]"
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-[#FDE68A] hover:bg-[#2A2015] disabled:opacity-50"
                       >
                         <AlertTriangle className="h-4 w-4" />
                         <span>Informar incumplimiento</span>

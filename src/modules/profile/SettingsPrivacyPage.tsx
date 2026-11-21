@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Lock, LogOut, Smartphone, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { deleteOwnAccount } from '../../services/authService';
+import { translateFirebaseError } from '../../services/firebase';
 import { PWAInstallButton } from '../../components/PWAInstallButton';
 
 export const SettingsPrivacyPage: React.FC = () => {
@@ -19,7 +20,7 @@ export const SettingsPrivacyPage: React.FC = () => {
       await deleteOwnAccount();
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible dar de baja la cuenta.');
+      setError(translateFirebaseError(err));
       setDeleting(false);
     }
   };

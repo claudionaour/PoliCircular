@@ -1,15 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Bookmark, Flag, Gift, RefreshCw, Star } from 'lucide-react';
+import { ArrowLeft, Bookmark, CheckCircle2, Flag, Gift, MessageSquare, RefreshCw, Star } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getProductById, listMyProducts } from '../../services/productService';
-import { createMatchRequest, upsertProductInterest } from '../../services/matchingService';
+import {
+  createMatchRequest,
+  listMatchRequests,
+  listUserMatches,
+  upsertProductInterest,
+} from '../../services/matchingService';
 import { translateFirebaseError } from '../../services/firebase';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { OsmSectorMap } from '../../components/OsmSectorMap';
 import { ReportModal } from '../../components/ReportModal';
 import { CONDITION_LABELS, formatChileDate, MODALITY_LABELS } from '../../utils/formatters';
-import type { Product } from '../../types/domain';
+import type { MatchRequest, Product } from '../../types/domain';
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +30,8 @@ export const ProductDetailPage: React.FC = () => {
   const [requestedQuantity, setRequestedQuantity] = useState(1);
   const [requestMessage, setRequestMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [existingRequest, setExistingRequest] = useState<MatchRequest | null>(null);
+  const [linkedMatchId, setLinkedMatchId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [showReport, setShowReport] = useState(false);
 
@@ -46,6 +53,34 @@ export const ProductDetailPage: React.FC = () => {
       })
       .catch(() => setMyApprovedProducts([]));
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !id) {
+      setExistingRequest(null);
+      setLinkedMatchId(null);
+      return;
+    }
+    Promise.all([listMatchRequests(user.uid), listUserMatches(user.uid)])
+      .then(([reqs, matches]) => {
+        const activeReq = reqs.find(
+          (r) =>
+            r.target_product_id === id &&
+            r.requester_id === user.uid &&
+            ['pending', 'chat_requested', 'accepted'].includes(r.status)
+        );
+        setExistingRequest(activeReq ?? null);
+        if (activeReq?.status === 'accepted') {
+          const m = matches.find((item) => item.request_id === activeReq.id);
+          setLinkedMatchId(m?.id ?? null);
+        } else {
+          setLinkedMatchId(null);
+        }
+      })
+      .catch(() => {
+        setExistingRequest(null);
+        setLinkedMatchId(null);
+      });
+  }, [user, id]);
 
   const handleFavorite = async () => {
     if (!user || !product) {
@@ -89,7 +124,7 @@ export const ProductDetailPage: React.FC = () => {
         Math.min(product.available_quantity, Math.round(Number(requestedQuantity) || 1))
       );
       await upsertProductInterest(product.id, user.uid, 'interested');
-      await createMatchRequest({
+      const created = await createMatchRequest({
         targetProductId: product.id,
         requesterId: user.uid,
         ownerId: product.owner_id,
@@ -98,9 +133,10 @@ export const ProductDetailPage: React.FC = () => {
         requestedQuantity: safeQty,
         message: requestMessage,
       });
+      setExistingRequest(created);
       setStatusMsg({
         type: 'ok',
-        text: 'Solicitud enviada. Cuando el propietario acepte, se creará el Match y el chat privado.',
+        text: 'Solicitud enviada. Cuando el propietario acepte, se creará el Match, se iniciará el chat automáticamente y se confirmará la entrega y recepción.',
       });
       setRequestMessage('');
     } catch (err) {
@@ -290,8 +326,42 @@ export const ProductDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Formulario de solicitud / intercambio */}
-          {!isOwner && product.status === 'approved' && product.available_quantity > 0 && (
+          {/* Estado de solicitud existente o formulario de solicitud */}
+          {!isOwner && existingRequest ? (
+            <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4">
+              <div className="flex items-center gap-2 font-display font-bold text-base text-[#6EE7B7]">
+                <CheckCircle2 className="h-5 w-5 shrink-0" />
+                <span>
+                  {existingRequest.status === 'accepted'
+                    ? 'Ya tienes un Match confirmado para esta publicación'
+                    : 'Ya enviaste una solicitud por esta publicación'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-200 leading-relaxed">
+                {existingRequest.status === 'accepted'
+                  ? 'El chat privado ya está iniciado y la entrega y recepción fueron confirmadas automáticamente.'
+                  : 'Cuando el propietario acepte tu solicitud, se creará el Match, se abrirá el chat automáticamente y se confirmará la entrega y recepción.'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {linkedMatchId ? (
+                  <Link
+                    to={`/matches/${linkedMatchId}`}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    <span>Abrir chat del Match</span>
+                  </Link>
+                ) : (
+                  <Link
+                    to="/matches"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
+                  >
+                    <span>Ver en Mis Match</span>
+                  </Link>
+                )}
+              </div>
+            </div>
+          ) : !isOwner && product.status === 'approved' && product.available_quantity > 0 && (
             <form
               onSubmit={handleRequestSubmit}
               className="rounded-2xl bg-[#102C49] border border-[#244B73] p-6 space-y-4"

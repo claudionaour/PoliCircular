@@ -4,9 +4,11 @@ import {
   ArrowLeft,
   Ban,
   CheckCheck,
+  CheckCircle2,
   Flag,
   Send,
   ShieldAlert,
+  Star,
   Truck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -20,10 +22,15 @@ import {
   subscribeToConversationMessages,
   toggleConversationBlock,
 } from '../../services/chatService';
-import { cancelExchangeAgreementRpc } from '../../services/exchangeService';
+import {
+  cancelExchangeAgreementRpc,
+  confirmExchangeDeliveryRpc,
+  listMySubmittedReviewExchangeIds,
+} from '../../services/exchangeService';
 import { translateFirebaseError } from '../../services/firebase';
 import { ReportModal } from '../../components/ReportModal';
-import { EXCHANGE_STATUS_LABELS, formatChileDateTime } from '../../utils/formatters';
+import { ReviewFormModal } from '../reviews/ReviewFormModal';
+import { formatChileDateTime } from '../../utils/formatters';
 import type { Conversation, MatchRecord, Message } from '../../types/domain';
 
 export const MatchRoomPage: React.FC = () => {
@@ -33,11 +40,14 @@ export const MatchRoomPage: React.FC = () => {
   const [match, setMatch] = useState<MatchRecord | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [alreadyReviewed, setAlreadyReviewed] = useState(false);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -46,8 +56,14 @@ export const MatchRoomPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const m = await getMatchDetail(matchId);
+      const [m, revIds] = await Promise.all([
+        getMatchDetail(matchId),
+        listMySubmittedReviewExchangeIds(user.uid).catch(() => [] as string[]),
+      ]);
       setMatch(m);
+      const exId = m?.exchanges?.[0]?.id;
+      setAlreadyReviewed(Boolean(exId && revIds.includes(exId)));
+
       let conv = m?.conversations?.[0] ?? null;
       if (!conv && m) {
         conv = await ensureMatchConversation(m, user.uid);
@@ -125,8 +141,9 @@ export const MatchRoomPage: React.FC = () => {
   };
 
   const handleBlockToggle = async () => {
-    if (!conversation || !user) return;
+    if (!conversation || !user || actionBusy) return;
     setError(null);
+    setActionBusy(true);
     const nextBlock = !conversation.is_blocked;
     try {
       await toggleConversationBlock(conversation.id, user.uid, nextBlock);
@@ -137,18 +154,38 @@ export const MatchRoomPage: React.FC = () => {
       });
     } catch (err) {
       setError(translateFirebaseError(err));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleConfirmLegacyExchange = async () => {
+    const exchange = match?.exchanges?.[0];
+    if (!exchange || actionBusy) return;
+    setError(null);
+    setActionBusy(true);
+    try {
+      await confirmExchangeDeliveryRpc({ exchangeId: exchange.id });
+      await loadData();
+    } catch (err) {
+      setError(translateFirebaseError(err));
+    } finally {
+      setActionBusy(false);
     }
   };
 
   const handleCancelAgreement = async () => {
     const exchange = match?.exchanges?.[0];
-    if (!exchange) return;
+    if (!exchange || actionBusy) return;
     setError(null);
+    setActionBusy(true);
     try {
       await cancelExchangeAgreementRpc(exchange.id, 'Cancelado desde el chat del Match');
       await loadData();
     } catch (err) {
       setError(translateFirebaseError(err));
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -175,6 +212,7 @@ export const MatchRoomPage: React.FC = () => {
   const other = match.owner_id === user?.uid ? match.requester : match.owner;
   const exchange = match.exchanges?.[0];
   const involvesMinor = Boolean(match.owner?.is_minor_supervised || match.requester?.is_minor_supervised);
+  const isCompleted = exchange?.status === 'completed';
 
   return (
     <div className="space-y-4">
@@ -190,19 +228,16 @@ export const MatchRoomPage: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             to="/intercambios"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#3B648F] bg-[#102C49] text-xs font-semibold text-white hover:bg-[#163B61]"
           >
-            <Truck className="h-4 w-4" />
-            <span>
-              {exchange?.status === 'completed'
-                ? 'Entrega confirmada · Ver detalle'
-                : `Coordinar entrega (${exchange ? EXCHANGE_STATUS_LABELS[exchange.status] : 'Pendiente'})`}
-            </span>
+            <Truck className="h-3.5 w-3.5 text-[#FFA94D]" />
+            <span>Mis intercambios</span>
           </Link>
           <button
             type="button"
+            disabled={actionBusy}
             onClick={handleBlockToggle}
-            className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-[#3B648F] bg-[#102C49] text-xs font-semibold text-white hover:bg-[#163B61]"
+            className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-[#3B648F] bg-[#102C49] text-xs font-semibold text-white hover:bg-[#163B61] disabled:opacity-50"
           >
             <Ban className="h-3.5 w-3.5" />
             <span>{conversation.is_blocked ? 'Desbloquear' : 'Bloquear'}</span>
@@ -218,14 +253,60 @@ export const MatchRoomPage: React.FC = () => {
           {exchange && exchange.status !== 'completed' && exchange.status !== 'cancelled' && (
             <button
               type="button"
+              disabled={actionBusy}
               onClick={handleCancelAgreement}
-              className="px-3 py-2 rounded-xl border border-red-400/40 bg-red-950/70 text-xs font-semibold text-red-200"
+              className="px-3 py-2 rounded-xl border border-red-400/40 bg-red-950/70 text-xs font-semibold text-red-200 disabled:opacity-50"
             >
               Cancelar acuerdo
             </button>
           )}
         </div>
       </div>
+
+      {/* Estado automático de entrega y recepción */}
+      {exchange && (
+        <div
+          className={`rounded-xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs ${
+            isCompleted
+              ? 'bg-[#143D29] border-[#34D399]/40 text-[#A7F3D0]'
+              : 'bg-[#102C49] border-[#244B73] text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-[#6EE7B7] shrink-0" />
+            <span>
+              {isCompleted
+                ? 'Match confirmado · Entrega y recepción confirmadas automáticamente. Tu Árbol Circular ya registró esta operación.'
+                : 'Este intercambio aún figura pendiente de confirmación.'}
+            </span>
+          </div>
+
+          {isCompleted ? (
+            alreadyReviewed ? (
+              <span className="font-semibold text-[#6EE7B7]">Evaluación enviada</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowReviewModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#F28C28] text-[#0B1E33] font-bold hover:bg-[#FFA242]"
+              >
+                <Star className="h-3.5 w-3.5" />
+                <span>Evaluar experiencia</span>
+              </button>
+            )
+          ) : exchange.status !== 'cancelled' ? (
+            <button
+              type="button"
+              disabled={actionBusy}
+              onClick={handleConfirmLegacyExchange}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1E7E48] text-white font-semibold hover:bg-[#239454] disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>{actionBusy ? 'Confirmando...' : 'Confirmar entrega y recepción'}</span>
+            </button>
+          ) : null}
+        </div>
+      )}
 
       {involvesMinor && (
         <div className="rounded-xl bg-[#2A2015] border border-[#F28C28]/40 p-3 text-xs text-[#FDE68A] flex items-center gap-2">
@@ -236,7 +317,7 @@ export const MatchRoomPage: React.FC = () => {
         </div>
       )}
 
-      <div className="rounded-2xl bg-[#102C49] border border-[#244B73] overflow-hidden flex flex-col h-[62vh] min-h-[420px]">
+      <div className="rounded-2xl bg-[#102C49] border border-[#244B73] overflow-hidden flex flex-col h-[60vh] min-h-[400px]">
         <div className="px-5 py-3.5 border-b border-[#244B73] bg-[#081626] flex items-center justify-between">
           <div>
             <h1 className="font-display font-bold text-base text-white">
@@ -252,7 +333,7 @@ export const MatchRoomPage: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#0B1E33]">
           {messages.length === 0 ? (
             <p className="text-center text-xs text-slate-300 my-8">
-              Inicia la conversación para coordinar fecha, horario y punto de encuentro público sin exponer domicilios particulares.
+              ¡Match listo! Escribe aquí si quieres saludar o acordar algún detalle con tu contraparte.
             </p>
           ) : (
             messages.map((msg) => {
@@ -305,7 +386,7 @@ export const MatchRoomPage: React.FC = () => {
             placeholder={
               conversation.is_blocked
                 ? 'Esta conversación está bloqueada.'
-                : 'Escribe un mensaje para coordinar...'
+                : 'Escribe un mensaje...'
             }
             className="flex-1 rounded-xl border border-[#2D557F] bg-[#102C49] text-white placeholder:text-slate-400 px-3.5 py-2.5 text-sm focus:border-[#FFA94D] focus:outline-none disabled:opacity-50"
           />
@@ -319,6 +400,19 @@ export const MatchRoomPage: React.FC = () => {
           </button>
         </form>
       </div>
+
+      {showReviewModal && exchange && (
+        <ReviewFormModal
+          exchangeId={exchange.id}
+          targetName={other?.full_name || 'Participante'}
+          onClose={() => setShowReviewModal(false)}
+          onSuccess={() => {
+            setShowReviewModal(false);
+            setAlreadyReviewed(true);
+            loadData();
+          }}
+        />
+      )}
 
       {showReport && (
         <ReportModal

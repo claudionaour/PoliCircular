@@ -7,6 +7,7 @@ import {
   toggleUserSuspensionRpc,
 } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
+import { translateFirebaseError } from '../../services/firebase';
 import { ACCOUNT_TYPE_LABELS, formatChileDate } from '../../utils/formatters';
 import type { Profile, UserRole } from '../../types/domain';
 
@@ -24,6 +25,7 @@ export const AdminUsersPage: React.FC = () => {
   const [rolesMap, setRolesMap] = useState<Map<string, UserRole[]>>(new Map());
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -36,7 +38,7 @@ export const AdminUsersPage: React.FC = () => {
       setUsers(data);
       setRolesMap(rMap);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error cargando usuarios.');
+      setError(translateFirebaseError(err));
     } finally {
       setLoading(false);
     }
@@ -48,7 +50,9 @@ export const AdminUsersPage: React.FC = () => {
   }, [load]);
 
   const handleToggle = async (u: Profile) => {
+    if (busyUserId) return;
     setError(null);
+    setBusyUserId(u.id);
     try {
       await toggleUserSuspensionRpc(
         u.id,
@@ -57,12 +61,16 @@ export const AdminUsersPage: React.FC = () => {
       );
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No tienes permisos para suspender cuentas.');
+      setError(translateFirebaseError(err));
+    } finally {
+      setBusyUserId(null);
     }
   };
 
   const handleRoleChange = async (userId: string, highestRole: UserRole) => {
+    if (busyUserId) return;
     setError(null);
+    setBusyUserId(userId);
     const nextRoles: UserRole[] =
       highestRole === 'super_admin'
         ? ['user', 'moderator', 'admin', 'super_admin']
@@ -75,7 +83,9 @@ export const AdminUsersPage: React.FC = () => {
       await assignUserRolesAdmin(userId, nextRoles);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No autorizado para asignar roles.');
+      setError(translateFirebaseError(err));
+    } finally {
+      setBusyUserId(null);
     }
   };
 

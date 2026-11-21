@@ -254,8 +254,12 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
     return res.data.matchId;
   }
 
-  const currentUid = auth.currentUser?.uid;
+  const currentUser = auth.currentUser;
+  const currentUid = currentUser?.uid;
   if (!currentUid) throw new Error('Debes iniciar sesión.');
+  if (!currentUser.emailVerified) {
+    throw new Error('Debes verificar tu correo electrónico antes de aceptar una solicitud.');
+  }
 
   const reqRef = doc(db, 'match_requests', requestId);
 
@@ -292,13 +296,15 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
             : 'approved';
 
       const matchRef = doc(collection(db, 'matches'));
-      const convRef = doc(collection(db, 'conversations'));
+      const convId = `conv_${matchRef.id}`;
+      const convRef = doc(db, 'conversations', convId);
       const exchangeRef = doc(collection(db, 'exchanges'));
       const ownerConfId = `${exchangeRef.id}_${reqData.owner_id}`;
       const requesterConfId = `${exchangeRef.id}_${reqData.requester_id}`;
       const ownerConfRef = doc(db, 'exchange_confirmations', ownerConfId);
       const requesterConfRef = doc(db, 'exchange_confirmations', requesterConfId);
       const notifRef = doc(collection(db, 'notifications'));
+      const productTitle = String(prod.title || 'producto');
 
       tx.update(reqRef, {
         status: 'accepted',
@@ -328,7 +334,7 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
       });
 
       tx.set(convRef, {
-        id: convRef.id,
+        id: convId,
         match_id: matchRef.id,
         participant_a: reqData.owner_id,
         participant_b: reqData.requester_id,
@@ -376,7 +382,7 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
         user_id: reqData.requester_id,
         event_type: 'match_accepted',
         title: '¡Match Circular y entrega confirmados!',
-        body: `Aceptaron tu solicitud por “${String(prod.title || 'producto')}”. La entrega y recepción quedaron confirmadas automáticamente y tu Árbol Circular creció.`.slice(0, 500),
+        body: `Aceptaron tu solicitud por “${productTitle}”. El chat quedó iniciado y la entrega y recepción se confirmaron automáticamente.`.slice(0, 500),
         link_path: `/matches/${matchRef.id}`,
         is_read: false,
         created_at: serverTimestamp(),
@@ -384,6 +390,7 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
 
       return {
         matchId: matchRef.id,
+        conversationId: convId,
         exchangeId: exchangeRef.id,
         ownerId: String(reqData.owner_id),
         requesterId: String(reqData.requester_id),
@@ -391,18 +398,37 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
         qtyReserved: qty,
         productData: prod as Record<string, unknown>,
         productId: String(reqData.target_product_id),
+        productTitle,
       };
     });
 
-    await applyExchangeCompletionSideEffects({
-      exchangeId: txResult.exchangeId,
-      ownerId: txResult.ownerId,
-      requesterId: txResult.requesterId,
-      isGift: txResult.isGift,
-      qtyReserved: txResult.qtyReserved,
-      productData: txResult.productData,
-      productId: txResult.productId,
-    });
+    const initialMessageRef = doc(collection(db, 'messages'));
+    await Promise.all([
+      setDoc(initialMessageRef, {
+        id: initialMessageRef.id,
+        conversation_id: txResult.conversationId,
+        participant_a: txResult.ownerId,
+        participant_b: txResult.requesterId,
+        sender_id: currentUid,
+        body: `¡Match confirmado por “${txResult.productTitle}”! La entrega y recepción quedaron confirmadas automáticamente. Este chat queda abierto para cualquier detalle.`.slice(
+          0,
+          1500
+        ),
+        is_read: false,
+        created_at: serverTimestamp(),
+      }).catch((msgErr) => {
+        console.warn('No se pudo crear el mensaje inicial automático del Match:', msgErr);
+      }),
+      applyExchangeCompletionSideEffects({
+        exchangeId: txResult.exchangeId,
+        ownerId: txResult.ownerId,
+        requesterId: txResult.requesterId,
+        isGift: txResult.isGift,
+        qtyReserved: txResult.qtyReserved,
+        productData: txResult.productData,
+        productId: txResult.productId,
+      }),
+    ]);
 
     return txResult.matchId;
   } catch (error) {

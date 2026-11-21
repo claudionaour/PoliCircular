@@ -38,10 +38,10 @@ import type {
 } from '../types/domain';
 
 function computeTreeStage(operations: number): TreeStage {
-  if (operations >= 15) return 'arbol_frutal';
-  if (operations >= 9) return 'arbol_desarrollado';
-  if (operations >= 5) return 'arbol_joven';
-  if (operations >= 2) return 'brote';
+  if (operations >= 25) return 'arbol_frutal';
+  if (operations >= 10) return 'arbol_desarrollado';
+  if (operations >= 3) return 'arbol_joven';
+  if (operations >= 1) return 'brote';
   return 'semilla';
 }
 
@@ -517,6 +517,12 @@ export async function confirmExchangeDeliveryRpc(params: {
       activeStage = 'tx_core_read_confirmation';
       activePath = `exchange_confirmations/${myConfId}`;
       const myConfSnap = await tx.get(myConfRef);
+      const requesterConfId = `${params.exchangeId}_${requesterId}`;
+      const requesterConfRef = doc(db, 'exchange_confirmations', requesterConfId);
+      const requesterConfSnap =
+        ownerId === currentUid && requesterId !== currentUid
+          ? await tx.get(requesterConfRef)
+          : null;
 
       lastConfirmationSnapshot = {
         myConfId,
@@ -551,11 +557,24 @@ export async function confirmExchangeDeliveryRpc(params: {
           owner_id: ownerId,
           requester_id: requesterId,
           confirmed_at: serverTimestamp(),
-          notes: params.notes?.trim() || null,
+          notes: params.notes?.trim() || 'Confirmado automáticamente.',
           measured_weight_kg:
             typeof params.measuredWeightKg === 'number' && params.measuredWeightKg > 0
               ? params.measuredWeightKg
               : null,
+        });
+      }
+
+      if (requesterConfSnap && !requesterConfSnap.exists()) {
+        tx.set(requesterConfRef, {
+          id: requesterConfId,
+          exchange_id: params.exchangeId,
+          user_id: requesterId,
+          owner_id: ownerId,
+          requester_id: requesterId,
+          confirmed_at: serverTimestamp(),
+          notes: 'Recepción confirmada automáticamente.',
+          measured_weight_kg: null,
         });
       }
 

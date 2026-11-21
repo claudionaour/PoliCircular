@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Ban, Check, X } from 'lucide-react';
 import { listModerationQueue, moderateProductRpc } from '../../services/adminService';
+import { translateFirebaseError } from '../../services/firebase';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import {
   CONDITION_LABELS,
@@ -15,6 +16,7 @@ export const AdminModerationPage: React.FC = () => {
   const [items, setItems] = useState<Product[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -24,7 +26,7 @@ export const AdminModerationPage: React.FC = () => {
       const data = await listModerationQueue(filter || undefined);
       setItems(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error cargando cola de moderación.');
+      setError(translateFirebaseError(err));
     } finally {
       setLoading(false);
     }
@@ -35,17 +37,21 @@ export const AdminModerationPage: React.FC = () => {
   }, [load]);
 
   const handleAction = async (productId: string, action: 'approve' | 'reject' | 'suspend') => {
+    if (busyId) return;
     setError(null);
     const reason = reasons[productId] || '';
     if ((action === 'reject' || action === 'suspend') && reason.trim().length < 5) {
       setError('Debes ingresar un motivo claro (mínimo 5 caracteres) al rechazar o suspender.');
       return;
     }
+    setBusyId(productId);
     try {
       await moderateProductRpc(productId, action, reason);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo ejecutar la moderación.');
+      setError(translateFirebaseError(err));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -148,24 +154,27 @@ export const AdminModerationPage: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    disabled={Boolean(busyId)}
                     onClick={() => handleAction(p.id, 'approve')}
-                    className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454]"
+                    className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-[#1E7E48] text-white text-xs font-semibold hover:bg-[#239454] disabled:opacity-50"
                   >
                     <Check className="h-4 w-4" />
                     <span>Aprobar</span>
                   </button>
                   <button
                     type="button"
+                    disabled={Boolean(busyId)}
                     onClick={() => handleAction(p.id, 'reject')}
-                    className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242]"
+                    className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-[#F28C28] text-[#0B1E33] text-xs font-bold hover:bg-[#FFA242] disabled:opacity-50"
                   >
                     <X className="h-4 w-4" />
                     <span>Rechazar</span>
                   </button>
                   <button
                     type="button"
+                    disabled={Boolean(busyId)}
                     onClick={() => handleAction(p.id, 'suspend')}
-                    className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-red-700 text-white text-xs font-semibold hover:bg-red-800"
+                    className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-red-700 text-white text-xs font-semibold hover:bg-red-800 disabled:opacity-50"
                   >
                     <Ban className="h-4 w-4" />
                     <span>Suspender</span>

@@ -4,6 +4,7 @@ import {
   listReportsAdmin,
   resolveReportRpc,
 } from '../../services/adminService';
+import { translateFirebaseError } from '../../services/firebase';
 import { formatChileDateTime } from '../../utils/formatters';
 import type { ModerationLog, ReportRecord } from '../../types/domain';
 
@@ -17,7 +18,7 @@ export const AdminReportsPage: React.FC = () => {
       const data = await listReportsAdmin();
       setReports(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error cargando denuncias.');
+      setError(translateFirebaseError(err));
     }
   }, []);
 
@@ -36,7 +37,7 @@ export const AdminReportsPage: React.FC = () => {
       await resolveReportRpc(id, status, note);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo actualizar la denuncia.');
+      setError(translateFirebaseError(err));
     }
   };
 
@@ -121,9 +122,12 @@ export const AdminReportsPage: React.FC = () => {
 
 export const AdminHistoryPage: React.FC = () => {
   const [logs, setLogs] = useState<ModerationLog[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listModerationLogs().then(setLogs).catch(() => {});
+    listModerationLogs()
+      .then(setLogs)
+      .catch((err) => setError(translateFirebaseError(err)));
   }, []);
 
   return (
@@ -134,6 +138,12 @@ export const AdminHistoryPage: React.FC = () => {
           Registro trazable de aprobaciones, rechazos, suspensiones y resoluciones administrativas.
         </p>
       </div>
+
+      {error && (
+        <div className="rounded-xl bg-red-950/70 border border-red-400/40 p-3 text-xs text-red-200">
+          {error}
+        </div>
+      )}
 
       <div className="rounded-2xl bg-[#102C49] border border-[#244B73] overflow-x-auto">
         <table className="w-full text-left text-xs border-collapse">
