@@ -28,7 +28,7 @@ El proyecto nativo ya incluye los íconos oficiales de PoliCircular, pantalla de
 ### Con Android Studio (Windows / Mac / Linux)
 1. Descarga el proyecto y ejecuta en la raíz:
    ```bash
-   npm install
+   npm install --legacy-peer-deps
    npm run cap:sync
    npx cap open android
    ```
@@ -37,7 +37,7 @@ El proyecto nativo ya incluye los íconos oficiales de PoliCircular, pantalla de
 
 ### Con línea de comandos (Java 21 + Android SDK 36)
 ```bash
-npm install
+npm install --legacy-peer-deps
 npm run cap:sync
 cd android
 ./gradlew assembleDebug

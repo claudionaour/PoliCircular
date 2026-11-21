@@ -25,9 +25,19 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android SDK 36 y aceptar licencias
+        run: |
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          set -o pipefail
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
       - name: Instalar dependencias y sincronizar Capacitor
         run: |
-          npm install --no-audit --no-fund
+          npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
           npx cap sync android
 
@@ -35,11 +45,12 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Subir PoliCircular.apk como artefacto descargable
         uses: actions/upload-artifact@v4
         with:
           name: PoliCircular-Android-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 30
