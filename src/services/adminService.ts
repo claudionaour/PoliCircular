@@ -164,9 +164,10 @@ export async function moderateProductRpc(
 
   try {
     const batch = writeBatch(db);
+    const safeNotes = reason?.trim().slice(0, 500) || null;
     batch.update(prodRef, {
       status: decision,
-      moderation_notes: reason?.trim() || null,
+      moderation_notes: safeNotes,
       moderated_by: actorUid,
       moderated_at: serverTimestamp(),
       updated_at: serverTimestamp(),
@@ -181,11 +182,15 @@ export async function moderateProductRpc(
       action: `product_${decision}`,
       previous_status: String(prod.status || ''),
       new_status: decision,
-      notes: reason?.trim() || null,
+      notes: safeNotes,
       created_at: serverTimestamp(),
     });
 
     const notifRef = doc(collection(db, 'notifications'));
+    const notifBody =
+      decision === 'approved'
+        ? `“${String(prod.title || 'Tu publicación')}” ya está visible para la comunidad de PoliCircular.`
+        : `“${String(prod.title || 'Tu publicación')}” recibió observaciones: ${safeNotes || 'Revisa las reglas comunitarias.'}`;
     batch.set(notifRef, {
       id: notifRef.id,
       user_id: String(prod.owner_id),
@@ -196,10 +201,7 @@ export async function moderateProductRpc(
           : decision === 'rejected'
             ? 'Tu publicación requiere ajustes'
             : 'Tu publicación fue suspendida',
-      body:
-        decision === 'approved'
-          ? `“${prod.title}” ya está visible para la comunidad de PoliCircular.`
-          : `“${prod.title}” recibió observaciones: ${reason || 'Revisa las reglas comunitarias.'}`,
+      body: notifBody.slice(0, 500),
       link_path: '/mis-publicaciones',
       is_read: false,
       created_at: serverTimestamp(),
@@ -534,8 +536,8 @@ export async function createReport(params: {
       reporter_id: params.reporterId,
       target_type: params.targetType,
       target_id: params.targetId,
-      reason_category: params.reasonCategory,
-      description: params.description.trim(),
+      reason_category: params.reasonCategory.trim().slice(0, 160),
+      description: params.description.trim().slice(0, 1000),
       status: 'open',
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),

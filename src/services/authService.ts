@@ -114,10 +114,15 @@ export async function initializeUserDocuments(
       ? normalizedUsername
       : `vecino_${uid.slice(0, 6)}`;
 
+  const rawFullName = details.fullName.trim();
+  const safeFullName = (
+    rawFullName.length >= 2 ? rawFullName : 'Participante PoliCircular'
+  ).slice(0, 120);
+
   const batch = writeBatch(db);
   batch.set(userRef, {
     id: uid,
-    full_name: details.fullName.trim() || 'Participante PoliCircular',
+    full_name: safeFullName,
     username: safeUsername,
     avatar_url: firebaseUser.photoURL || null,
     bio: null,
@@ -353,8 +358,30 @@ export async function updateOwnProfile(
       ? await resolveTerritorialLabels(updates.commune_id, updates.sector_id)
       : null;
 
+  const sanitizedUpdates = { ...updates };
+  if (typeof sanitizedUpdates.full_name === 'string') {
+    const trimmedName = sanitizedUpdates.full_name.trim().slice(0, 120);
+    if (trimmedName.length < 2) {
+      throw new Error('El nombre completo debe tener al menos 2 caracteres.');
+    }
+    sanitizedUpdates.full_name = trimmedName;
+  }
+  if (typeof sanitizedUpdates.bio === 'string') {
+    sanitizedUpdates.bio = sanitizedUpdates.bio.trim().slice(0, 500) || null;
+  }
+  if (typeof sanitizedUpdates.institution_name === 'string') {
+    sanitizedUpdates.institution_name = sanitizedUpdates.institution_name.trim().slice(0, 160) || null;
+  }
+  if (typeof sanitizedUpdates.institution_description === 'string') {
+    sanitizedUpdates.institution_description =
+      sanitizedUpdates.institution_description.trim().slice(0, 500) || null;
+  }
+  if (typeof sanitizedUpdates.responsible_person === 'string') {
+    sanitizedUpdates.responsible_person = sanitizedUpdates.responsible_person.trim().slice(0, 120) || null;
+  }
+
   const payload: Record<string, unknown> = {
-    ...updates,
+    ...sanitizedUpdates,
     updated_at: serverTimestamp(),
   };
 
@@ -376,7 +403,7 @@ export async function updateOwnProfile(
         doc(db, 'users', userId, 'private', 'contact'),
         {
           user_id: userId,
-          private_phone: privatePhone || null,
+          private_phone: privatePhone ? privatePhone.trim().slice(0, 40) : null,
           updated_at: serverTimestamp(),
         },
         { merge: true }

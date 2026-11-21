@@ -188,24 +188,31 @@ export async function createProductWithImages(input: CreateProductInput): Promis
     });
   }
 
+  const safeTotalQuantity = Math.max(
+    1,
+    Math.min(500, Math.round(Number(input.totalQuantity) || 1))
+  );
+
   try {
     const batch = writeBatch(db);
     batch.set(productRef, {
       id: productId,
       owner_id: input.ownerId,
       category_id: input.categoryId,
-      title: input.title.trim(),
-      description: input.description.trim(),
+      title: input.title.trim().slice(0, 120),
+      description: input.description.trim().slice(0, 2000),
       condition: input.condition,
       modality: input.modality,
       desired_exchange_items:
-        input.modality === 'exchange' ? input.desiredExchangeItems?.trim() || null : null,
-      total_quantity: input.totalQuantity,
-      available_quantity: input.totalQuantity,
+        input.modality === 'exchange'
+          ? input.desiredExchangeItems?.trim().slice(0, 500) || null
+          : null,
+      total_quantity: safeTotalQuantity,
+      available_quantity: safeTotalQuantity,
       reserved_quantity: 0,
       commune_id: input.communeId,
       sector_id: input.sectorId || null,
-      delivery_method: input.deliveryMethod.trim(),
+      delivery_method: input.deliveryMethod.trim().slice(0, 120),
       status: 'pending',
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),

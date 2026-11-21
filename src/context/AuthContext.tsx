@@ -97,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const reloadAuthUser = useCallback(async () => {
     if (auth.currentUser) {
       await auth.currentUser.reload();
+      await auth.currentUser.getIdToken(true);
       const refreshed = auth.currentUser;
       setUser(refreshed);
       setVerifiedState(Boolean(refreshed?.emailVerified));

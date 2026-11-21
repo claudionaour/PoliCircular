@@ -19,7 +19,7 @@ import {
   listSectorsByCommune,
 } from '../../services/territorialService';
 import { upsertProductInterest } from '../../services/matchingService';
-import { isFirebaseConfigured } from '../../services/firebase';
+import { isFirebaseConfigured, translateFirebaseError } from '../../services/firebase';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { CONDITION_LABELS, formatChileDate, MODALITY_LABELS } from '../../utils/formatters';
 import type {
@@ -35,7 +35,7 @@ import type {
 type ViewMode = 'cards' | 'list' | 'swipe';
 
 export const ExplorePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isEmailVerified } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -108,6 +108,10 @@ export const ExplorePage: React.FC = () => {
       setFeedback('Inicia sesión para guardar intereses o favoritos.');
       return;
     }
+    if (!isEmailVerified) {
+      setFeedback('Verifica tu correo electrónico antes de guardar intereses o favoritos.');
+      return;
+    }
     try {
       await upsertProductInterest(product.id, user.uid, decision);
       const label =
@@ -121,7 +125,7 @@ export const ExplorePage: React.FC = () => {
         setSwipeIndex((idx) => idx + 1);
       }
     } catch (err) {
-      setFeedback(err instanceof Error ? err.message : 'No fue posible guardar tu acción.');
+      setFeedback(translateFirebaseError(err));
     }
   };
 

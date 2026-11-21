@@ -16,6 +16,7 @@ import {
   listSectorsByCommune,
 } from '../../services/territorialService';
 import { createProductWithImages } from '../../services/productService';
+import { translateFirebaseError } from '../../services/firebase';
 import { validateAndOptimizeImage } from '../../utils/imageOptimizer';
 import { validateCommunityProductRules } from '../../utils/prohibitedContent';
 import { CONDITION_LABELS, MODALITY_LABELS } from '../../utils/formatters';
@@ -210,9 +211,7 @@ export const PublishProductWizard: React.FC = () => {
       });
       navigate('/mis-publicaciones', { replace: true });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'No fue posible guardar la publicación en Firebase.'
-      );
+      setError(translateFirebaseError(err));
     } finally {
       setSubmitting(false);
     }
@@ -325,6 +324,7 @@ export const PublishProductWizard: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-200 mb-1.5">Nombre del producto</label>
               <input
                 type="text"
+                maxLength={120}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ej. Silla de madera nativa o Mochila escolar"
@@ -336,6 +336,7 @@ export const PublishProductWizard: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-200 mb-1.5">Descripción</label>
               <textarea
                 rows={4}
+                maxLength={2000}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Detalla características, medidas aproximadas, detalles de uso o qué reparación requiere."
@@ -381,7 +382,11 @@ export const PublishProductWizard: React.FC = () => {
                   min={1}
                   max={500}
                   value={totalQuantity}
-                  onChange={(e) => setTotalQuantity(Math.max(1, Number(e.target.value) || 1))}
+                  onChange={(e) =>
+                    setTotalQuantity(
+                      Math.max(1, Math.min(500, Math.round(Number(e.target.value) || 1)))
+                    )
+                  }
                   className="w-full rounded-xl border border-[#2D557F] bg-[#0B1E33] text-white px-3.5 py-2.5 text-sm font-mono tabular-nums"
                 />
               </div>

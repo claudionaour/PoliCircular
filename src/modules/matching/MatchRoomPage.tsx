@@ -12,13 +12,16 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { getMatchDetail } from '../../services/matchingService';
 import {
+  ensureMatchConversation,
   listMessages,
   markConversationMessagesRead,
+  resolveParticipantField,
   sendMessage,
   subscribeToConversationMessages,
   toggleConversationBlock,
 } from '../../services/chatService';
 import { cancelExchangeAgreementRpc } from '../../services/exchangeService';
+import { translateFirebaseError } from '../../services/firebase';
 import { ReportModal } from '../../components/ReportModal';
 import { EXCHANGE_STATUS_LABELS, formatChileDateTime } from '../../utils/formatters';
 import type { Conversation, MatchRecord, Message } from '../../types/domain';
@@ -41,18 +44,23 @@ export const MatchRoomPage: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!matchId || !user) return;
     setLoading(true);
+    setError(null);
     try {
       const m = await getMatchDetail(matchId);
       setMatch(m);
-      const conv = m?.conversations?.[0] ?? null;
+      let conv = m?.conversations?.[0] ?? null;
+      if (!conv && m) {
+        conv = await ensureMatchConversation(m, user.uid);
+      }
       setConversation(conv);
       if (conv) {
-        const msgs = await listMessages(conv.id);
+        const participantField = resolveParticipantField(conv, user.uid);
+        const msgs = await listMessages(conv.id, { userId: user.uid, participantField });
         setMessages(msgs);
-        await markConversationMessagesRead(conv.id, user.uid);
+        await markConversationMessagesRead(conv.id, user.uid, participantField).catch(() => {});
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible abrir la conversación.');
+      setError(translateFirebaseError(err));
     } finally {
       setLoading(false);
     }
@@ -64,6 +72,7 @@ export const MatchRoomPage: React.FC = () => {
 
   useEffect(() => {
     if (!conversation || !user) return;
+    const participantField = resolveParticipantField(conversation, user.uid);
     const channel = subscribeToConversationMessages(
       conversation.id,
       (incoming) => {
@@ -75,11 +84,18 @@ export const MatchRoomPage: React.FC = () => {
           );
         });
         if (incoming.sender_id !== user.uid) {
-          markConversationMessagesRead(conversation.id, user.uid).catch(() => {});
+          markConversationMessagesRead(conversation.id, user.uid, participantField).catch(() => {});
         }
       },
       (updated) => {
         setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      },
+      {
+        userId: user.uid,
+        participantField,
+        onError: (subErr) => {
+          setError(translateFirebaseError(subErr));
+        },
       }
     );
 
@@ -102,7 +118,7 @@ export const MatchRoomPage: React.FC = () => {
       setMessages((prev) => (prev.some((m) => m.id === sent.id) ? prev : [...prev, sent]));
       setDraft('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo enviar el mensaje.');
+      setError(translateFirebaseError(err));
     } finally {
       setSending(false);
     }
@@ -110,19 +126,29 @@ export const MatchRoomPage: React.FC = () => {
 
   const handleBlockToggle = async () => {
     if (!conversation || !user) return;
+    setError(null);
     const nextBlock = !conversation.is_blocked;
-    await toggleConversationBlock(conversation.id, user.uid, nextBlock);
-    setConversation({ ...conversation, is_blocked: nextBlock, blocked_by: nextBlock ? user.uid : null });
+    try {
+      await toggleConversationBlock(conversation.id, user.uid, nextBlock);
+      setConversation({
+        ...conversation,
+        is_blocked: nextBlock,
+        blocked_by: nextBlock ? user.uid : null,
+      });
+    } catch (err) {
+      setError(translateFirebaseError(err));
+    }
   };
 
   const handleCancelAgreement = async () => {
     const exchange = match?.exchanges?.[0];
     if (!exchange) return;
+    setError(null);
     try {
       await cancelExchangeAgreementRpc(exchange.id, 'Cancelado desde el chat del Match');
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo cancelar el acuerdo.');
+      setError(translateFirebaseError(err));
     }
   };
 
@@ -132,8 +158,13 @@ export const MatchRoomPage: React.FC = () => {
 
   if (!match || !conversation) {
     return (
-      <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-8 text-center">
+      <div className="rounded-2xl bg-[#102C49] border border-[#244B73] p-8 text-center space-y-3">
         <p className="font-display font-bold text-white">Conversación no encontrada o no autorizada</p>
+        {error && (
+          <p className="text-xs text-red-200 bg-red-950/70 border border-red-400/40 rounded-xl p-3 max-w-md mx-auto">
+            {error}
+          </p>
+        )}
         <Link to="/matches" className="mt-3 inline-block text-sm font-semibold text-[#FFA94D]">
           Volver a Mis Match
         </Link>
@@ -269,6 +300,7 @@ export const MatchRoomPage: React.FC = () => {
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            maxLength={1500}
             disabled={conversation.is_blocked || sending}
             placeholder={
               conversation.is_blocked

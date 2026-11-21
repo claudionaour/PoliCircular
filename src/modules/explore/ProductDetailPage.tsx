@@ -4,6 +4,7 @@ import { ArrowLeft, Bookmark, Flag, Gift, RefreshCw, Star } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getProductById, listMyProducts } from '../../services/productService';
 import { createMatchRequest, upsertProductInterest } from '../../services/matchingService';
+import { translateFirebaseError } from '../../services/firebase';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { OsmSectorMap } from '../../components/OsmSectorMap';
 import { ReportModal } from '../../components/ReportModal';
@@ -12,7 +13,7 @@ import type { Product } from '../../types/domain';
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, isEmailVerified } = useAuth();
   const navigate = useNavigate();
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -46,15 +47,47 @@ export const ProductDetailPage: React.FC = () => {
       .catch(() => setMyApprovedProducts([]));
   }, [user]);
 
+  const handleFavorite = async () => {
+    if (!user || !product) {
+      navigate('/iniciar-sesion');
+      return;
+    }
+    if (!isEmailVerified) {
+      setStatusMsg({
+        type: 'err',
+        text: 'Debes verificar tu correo electrónico antes de guardar favoritos.',
+      });
+      return;
+    }
+    setStatusMsg(null);
+    try {
+      await upsertProductInterest(product.id, user.uid, 'favorite');
+      setStatusMsg({ type: 'ok', text: 'Producto guardado en tus favoritos.' });
+    } catch (err) {
+      setStatusMsg({ type: 'err', text: translateFirebaseError(err) });
+    }
+  };
+
   const handleRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !product) {
       navigate('/iniciar-sesion');
       return;
     }
+    if (!isEmailVerified) {
+      setStatusMsg({
+        type: 'err',
+        text: 'Debes verificar tu correo electrónico antes de enviar solicitudes o proponer intercambios.',
+      });
+      return;
+    }
     setSubmitting(true);
     setStatusMsg(null);
     try {
+      const safeQty = Math.max(
+        1,
+        Math.min(product.available_quantity, Math.round(Number(requestedQuantity) || 1))
+      );
       await upsertProductInterest(product.id, user.uid, 'interested');
       await createMatchRequest({
         targetProductId: product.id,
@@ -62,7 +95,7 @@ export const ProductDetailPage: React.FC = () => {
         ownerId: product.owner_id,
         modality: product.modality,
         offeredProductId: product.modality === 'exchange' ? offeredProductId || null : null,
-        requestedQuantity,
+        requestedQuantity: safeQty,
         message: requestMessage,
       });
       setStatusMsg({
@@ -73,7 +106,7 @@ export const ProductDetailPage: React.FC = () => {
     } catch (err) {
       setStatusMsg({
         type: 'err',
-        text: err instanceof Error ? err.message : 'No fue posible enviar la solicitud.',
+        text: translateFirebaseError(err),
       });
     } finally {
       setSubmitting(false);
@@ -229,7 +262,7 @@ export const ProductDetailPage: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => upsertProductInterest(product.id, user.uid, 'favorite')}
+                    onClick={handleFavorite}
                     className="p-2 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-slate-200 hover:text-[#FFA94D]"
                     aria-label="Guardar favorito"
                   >
@@ -237,7 +270,16 @@ export const ProductDetailPage: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowReport(true)}
+                    onClick={() => {
+                      if (!isEmailVerified) {
+                        setStatusMsg({
+                          type: 'err',
+                          text: 'Debes verificar tu correo electrónico antes de enviar una denuncia.',
+                        });
+                        return;
+                      }
+                      setShowReport(true);
+                    }}
                     className="p-2 rounded-xl border border-[#3B648F] bg-[#0B1E33] text-slate-200 hover:text-red-300"
                     aria-label="Denunciar publicación"
                   >
@@ -310,6 +352,7 @@ export const ProductDetailPage: React.FC = () => {
                 </label>
                 <textarea
                   rows={3}
+                  maxLength={500}
                   value={requestMessage}
                   onChange={(e) => setRequestMessage(e.target.value)}
                   placeholder="Cuéntale por qué te sirve este objeto o qué propones para coordinar."

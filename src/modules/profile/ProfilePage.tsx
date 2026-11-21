@@ -9,6 +9,7 @@ import {
 } from '../../services/authService';
 import { listActiveCommunes, listSectorsByCommune } from '../../services/territorialService';
 import { listUserReviews } from '../../services/exchangeService';
+import { translateFirebaseError } from '../../services/firebase';
 import { validateAndOptimizeImage } from '../../utils/imageOptimizer';
 import { ACCOUNT_TYPE_LABELS, formatChileDate } from '../../utils/formatters';
 import type { Commune, Review, Sector } from '../../types/domain';
@@ -83,7 +84,7 @@ export const ProfilePage: React.FC = () => {
     } catch (err) {
       setMessage({
         type: 'err',
-        text: err instanceof Error ? err.message : 'No fue posible subir la fotografía.',
+        text: translateFirebaseError(err),
       });
     } finally {
       setUploadingAvatar(false);
@@ -93,6 +94,13 @@ export const ProfilePage: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (fullName.trim().length < 2) {
+      setMessage({
+        type: 'err',
+        text: 'Tu nombre completo debe tener al menos 2 caracteres.',
+      });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
@@ -114,7 +122,7 @@ export const ProfilePage: React.FC = () => {
     } catch (err) {
       setMessage({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Error al actualizar perfil.',
+        text: translateFirebaseError(err),
       });
     } finally {
       setSaving(false);

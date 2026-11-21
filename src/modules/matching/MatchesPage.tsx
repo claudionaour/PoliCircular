@@ -40,7 +40,7 @@ export const MatchesPage: React.FC = () => {
       setRequests(reqs);
       setFavorites(ints.filter((i: any) => i.decision === 'favorite' || i.decision === 'interested'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error cargando solicitudes y Match.');
+      setError(translateFirebaseError(err));
     } finally {
       setLoading(false);
     }
@@ -70,7 +70,9 @@ export const MatchesPage: React.FC = () => {
     }
   };
 
-  const received = requests.filter((r) => r.owner_id === user?.uid && r.status === 'pending');
+  const received = requests.filter(
+    (r) => r.owner_id === user?.uid && ['pending', 'chat_requested'].includes(r.status)
+  );
   const sent = requests.filter((r) => r.requester_id === user?.uid);
 
   return (

@@ -485,7 +485,7 @@ service cloud.firestore {
     // =========================================================================
     match /communes/{communeId} {
       allow get: if isValidId(communeId);
-      allow list: if resource.data.is_active is bool;
+      allow list: if request.time is timestamp;
       allow create: if isAdmin() && isValidId(communeId) && isValidCommune(incoming());
       allow update: if isAdmin() && isValidId(communeId) && isValidCommune(incoming());
       allow delete: if false;
@@ -493,9 +493,9 @@ service cloud.firestore {
 
     match /sectors/{sectorId} {
       allow get: if isValidId(sectorId);
-      allow list: if resource.data.is_active is bool;
+      allow list: if request.time is timestamp;
       allow create: if isAdmin() && isValidId(sectorId) && isValidSector(incoming())
-        && exists(/databases/$(database)/documents/communes/$(incoming().commune_id));
+        && existsAfter(/databases/$(database)/documents/communes/$(incoming().commune_id));
       allow update: if isAdmin() && isValidId(sectorId) && isValidSector(incoming())
         && incoming().commune_id == existing().commune_id;
       allow delete: if false;
@@ -503,7 +503,7 @@ service cloud.firestore {
 
     match /categories/{categoryId} {
       allow get: if isValidId(categoryId);
-      allow list: if resource.data.is_active is bool;
+      allow list: if request.time is timestamp;
       allow create: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming());
       allow update: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming());
       allow delete: if false;
@@ -511,14 +511,14 @@ service cloud.firestore {
 
     match /achievements/{achievementId} {
       allow get: if isValidId(achievementId);
-      allow list: if resource.data.required_operations is int;
+      allow list: if request.time is timestamp;
       allow create, update: if isAdmin() && isValidId(achievementId) && isValidAchievement(incoming(), achievementId);
       allow delete: if false;
     }
 
     match /educational_institutions/{institutionId} {
       allow get: if isValidId(institutionId);
-      allow list: if resource.data.is_verified is bool;
+      allow list: if request.time is timestamp;
       allow create, update: if isAdmin() && isValidId(institutionId) && isValidInstitution(incoming());
       allow delete: if false;
     }
@@ -527,8 +527,8 @@ service cloud.firestore {
     // USERS (PUBLIC PROFILE + ISOLATED PRIVATE PII + RBAC ROLES)
     // =========================================================================
     match /users/{userId} {
-      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin() || resource.data.is_suspended == false);
-      allow list: if resource.data.is_suspended == false || (isSignedIn() && resource.data.id == request.auth.uid) || isAdmin();
+      allow get: if isValidId(userId) && (resource == null || isOwner(userId) || isAdmin() || resource.data.is_suspended == false);
+      allow list: if resource.data.is_suspended == false || (isSignedIn() && resource.data.id == request.auth.uid) || isModerator();
       allow create: if isOwner(userId) && isValidId(userId)
         && isValidUserPublic(incoming(), userId)
         && incoming().is_suspended == false
@@ -672,7 +672,7 @@ service cloud.firestore {
 
     match /product_images/{imageId} {
       allow get: if isValidId(imageId);
-      allow list: if resource.data.sort_order >= 0;
+      allow list: if request.time is timestamp;
       allow create: if isVerifiedUser() && isValidId(imageId)
         && isValidProductImage(incoming(), imageId)
         && incoming().owner_id == request.auth.uid
@@ -688,7 +688,7 @@ service cloud.firestore {
     // INTERESTS, MATCH REQUESTS & MATCHES
     // =========================================================================
     match /product_interests/{interestId} {
-      allow get: if isSignedIn() && isValidId(interestId) && resource.data.user_id == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(interestId) && (resource == null || resource.data.user_id == request.auth.uid);
       allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
       allow create, update: if isVerifiedUser() && isValidId(interestId)
         && isValidProductInterest(incoming(), interestId)
@@ -700,7 +700,7 @@ service cloud.firestore {
 
     match /match_requests/{requestId} {
       allow get: if isSignedIn() && isValidId(requestId)
-        && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
+        && (resource == null || resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.requester_id == request.auth.uid))
         || isModerator();
       allow create: if isVerifiedUser() && isValidId(requestId)
@@ -756,7 +756,7 @@ service cloud.firestore {
     // =========================================================================
     match /conversations/{conversationId} {
       allow get: if isSignedIn() && isValidId(conversationId)
-        && (resource.data.participant_a == request.auth.uid || resource.data.participant_b == request.auth.uid || isModerator());
+        && (resource == null || resource.data.participant_a == request.auth.uid || resource.data.participant_b == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.participant_a == request.auth.uid || resource.data.participant_b == request.auth.uid))
         || isModerator();
       allow create: if isVerifiedUser() && isValidId(conversationId)
@@ -779,7 +779,7 @@ service cloud.firestore {
 
     match /messages/{messageId} {
       allow get: if isSignedIn() && isValidId(messageId)
-        && (resource.data.participant_a == request.auth.uid || resource.data.participant_b == request.auth.uid || isModerator());
+        && (resource == null || resource.data.participant_a == request.auth.uid || resource.data.participant_b == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && (resource.data.participant_a == request.auth.uid || resource.data.participant_b == request.auth.uid))
         || isModerator();
       allow create: if isVerifiedUser() && isValidId(messageId)
@@ -925,7 +925,7 @@ service cloud.firestore {
 
     match /reports/{reportId} {
       allow get: if isSignedIn() && isValidId(reportId)
-        && (resource.data.reporter_id == request.auth.uid || isModerator());
+        && (resource == null || resource.data.reporter_id == request.auth.uid || isModerator());
       allow list: if (isSignedIn() && resource.data.reporter_id == request.auth.uid) || isModerator();
       allow create: if isVerifiedUser() && isValidId(reportId)
         && isValidReport(incoming(), reportId)
@@ -1034,7 +1034,7 @@ service cloud.firestore {
 
     match /impact_records/{impactId} {
       allow get: if isValidId(impactId);
-      allow list: if resource.data.quantity >= 1;
+      allow list: if request.time is timestamp;
       allow create: if isSignedIn() && isValidId(impactId)
         && isValidImpactRecord(incoming(), impactId)
         && impactId == incoming().exchange_id
@@ -1048,7 +1048,7 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow get: if isSignedIn() && isValidId(notificationId) && resource.data.user_id == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(notificationId) && (resource == null || resource.data.user_id == request.auth.uid);
       allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
       allow create: if isSignedIn() && isValidId(notificationId)
         && isValidNotification(incoming(), notificationId)
@@ -1068,7 +1068,7 @@ service cloud.firestore {
     }
 
     match /education_progress/{progressId} {
-      allow get: if isSignedIn() && isValidId(progressId) && resource.data.user_id == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(progressId) && (resource == null || resource.data.user_id == request.auth.uid);
       allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
       allow create, update: if isVerifiedUser() && isValidId(progressId)
         && isValidEducationProgress(incoming(), progressId)

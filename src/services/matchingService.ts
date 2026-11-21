@@ -118,6 +118,8 @@ export async function createMatchRequest(params: {
 }): Promise<MatchRequest> {
   const reqRef = doc(collection(db, 'match_requests'));
   const notifRef = doc(collection(db, 'notifications'));
+  const safeQty = Math.max(1, Math.min(500, Math.round(Number(params.requestedQuantity) || 1)));
+  const safeMessage = params.message?.trim().slice(0, 500) || null;
 
   try {
     const batch = writeBatch(db);
@@ -129,8 +131,8 @@ export async function createMatchRequest(params: {
       modality: params.modality,
       offered_product_id:
         params.modality === 'exchange' ? params.offeredProductId || null : null,
-      requested_quantity: params.requestedQuantity,
-      message: params.message?.trim() || null,
+      requested_quantity: safeQty,
+      message: safeMessage,
       status: 'pending',
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),
@@ -160,8 +162,8 @@ export async function createMatchRequest(params: {
       modality: params.modality,
       offered_product_id:
         params.modality === 'exchange' ? params.offeredProductId || null : null,
-      requested_quantity: params.requestedQuantity,
-      message: params.message?.trim() || null,
+      requested_quantity: safeQty,
+      message: safeMessage,
       status: 'pending',
       created_at: new Date().toISOString(),
     };
@@ -374,7 +376,7 @@ export async function acceptMatchRequestRpc(requestId: string): Promise<string> 
         user_id: reqData.requester_id,
         event_type: 'match_accepted',
         title: '¡Match Circular y entrega confirmados!',
-        body: `Aceptaron tu solicitud por “${prod.title}”. La entrega y recepción quedaron confirmadas automáticamente y tu Árbol Circular creció.`,
+        body: `Aceptaron tu solicitud por “${String(prod.title || 'producto')}”. La entrega y recepción quedaron confirmadas automáticamente y tu Árbol Circular creció.`.slice(0, 500),
         link_path: `/matches/${matchRef.id}`,
         is_read: false,
         created_at: serverTimestamp(),
@@ -427,20 +429,34 @@ async function hydrateMatchDocs(
 ): Promise<MatchRecord[]> {
   if (matchDocs.length === 0) return [];
 
+  const currentUid = auth.currentUser?.uid;
   const productIds: string[] = [];
   const userIds: string[] = [];
-  const matchIds: string[] = [];
+  const matchRoleEntries: Array<{
+    mid: string;
+    ownerId: string;
+    requesterId: string;
+    roleField: 'owner_id' | 'requester_id' | null;
+  }> = [];
 
   matchDocs.forEach((d) => {
     const data = d.data();
-    matchIds.push(d.id);
+    const ownerId = String(data.owner_id || '');
+    const requesterId = String(data.requester_id || '');
+    const roleField: 'owner_id' | 'requester_id' | null =
+      currentUid && currentUid === ownerId
+        ? 'owner_id'
+        : currentUid && currentUid === requesterId
+          ? 'requester_id'
+          : null;
+    matchRoleEntries.push({ mid: d.id, ownerId, requesterId, roleField });
     if (data.target_product_id) productIds.push(String(data.target_product_id));
     if (data.offered_product_id) productIds.push(String(data.offered_product_id));
-    if (data.owner_id) userIds.push(String(data.owner_id));
-    if (data.requester_id) userIds.push(String(data.requester_id));
+    if (ownerId) userIds.push(ownerId);
+    if (requesterId) userIds.push(requesterId);
   });
 
-  const [maps, profiles, images, productSnaps, convSnaps, exSnaps] = await Promise.all([
+  const [maps, profiles, images, productSnaps, convLists, exLists] = await Promise.all([
     fetchLookupMaps(),
     fetchProfilesMap(userIds),
     fetchImagesByProductIds(productIds),
@@ -450,18 +466,79 @@ async function hydrateMatchDocs(
       )
     ),
     Promise.all(
-      matchIds.map((mid) =>
-        getDocs(query(collection(db, 'conversations'), where('match_id', '==', mid))).catch(
-          () => null
-        )
-      )
+      matchRoleEntries.map(async ({ mid, roleField }) => {
+        if (currentUid && roleField) {
+          const [asASnap, asBSnap, deterministicSnap] = await Promise.all([
+            getDocs(
+              query(
+                collection(db, 'conversations'),
+                where('match_id', '==', mid),
+                where('participant_a', '==', currentUid)
+              )
+            ).catch((err) => {
+              console.warn('Error consultando conversations (participant_a):', err);
+              return null;
+            }),
+            getDocs(
+              query(
+                collection(db, 'conversations'),
+                where('match_id', '==', mid),
+                where('participant_b', '==', currentUid)
+              )
+            ).catch((err) => {
+              console.warn('Error consultando conversations (participant_b):', err);
+              return null;
+            }),
+            getDoc(doc(db, 'conversations', `conv_${mid}`)).catch(() => null),
+          ]);
+          const seen = new Map<string, Record<string, unknown>>();
+          asASnap?.docs.forEach((cDoc) => seen.set(cDoc.id, cDoc.data()));
+          asBSnap?.docs.forEach((cDoc) => seen.set(cDoc.id, cDoc.data()));
+          if (deterministicSnap?.exists()) {
+            seen.set(deterministicSnap.id, deterministicSnap.data());
+          }
+          return Array.from(seen.entries()).map(([id, data]) => ({ id, data }));
+        }
+
+        const snap = await getDocs(
+          query(collection(db, 'conversations'), where('match_id', '==', mid))
+        ).catch((err) => {
+          console.warn('Error consultando conversations:', err);
+          return null;
+        });
+        return snap ? snap.docs.map((cDoc) => ({ id: cDoc.id, data: cDoc.data() })) : [];
+      })
     ),
     Promise.all(
-      matchIds.map((mid) =>
-        getDocs(query(collection(db, 'exchanges'), where('match_id', '==', mid))).catch(
-          () => null
-        )
-      )
+      matchRoleEntries.map(async ({ mid, roleField }) => {
+        if (currentUid && roleField) {
+          const snap = await getDocs(
+            query(
+              collection(db, 'exchanges'),
+              where('match_id', '==', mid),
+              where(roleField, '==', currentUid)
+            )
+          ).catch((err) => {
+            console.warn('Error consultando exchanges:', err);
+            return null;
+          });
+          return {
+            roleField,
+            docs: snap ? snap.docs.map((eDoc) => ({ id: eDoc.id, data: eDoc.data() })) : [],
+          };
+        }
+
+        const snap = await getDocs(
+          query(collection(db, 'exchanges'), where('match_id', '==', mid))
+        ).catch((err) => {
+          console.warn('Error consultando exchanges:', err);
+          return null;
+        });
+        return {
+          roleField: null as 'owner_id' | 'requester_id' | null,
+          docs: snap ? snap.docs.map((eDoc) => ({ id: eDoc.id, data: eDoc.data() })) : [],
+        };
+      })
     ),
   ]);
 
@@ -476,13 +553,12 @@ async function hydrateMatchDocs(
   });
 
   const convByMatch = new Map<string, Conversation[]>();
-  convSnaps.forEach((snap) => {
-    snap?.docs.forEach((cDoc) => {
-      const d = cDoc.data();
+  convLists.forEach((items) => {
+    items.forEach(({ id, data: d }) => {
       const mid = String(d.match_id || '');
       const list = convByMatch.get(mid) ?? [];
       list.push({
-        id: cDoc.id,
+        id,
         match_id: mid,
         participant_a: String(d.participant_a || ''),
         participant_b: String(d.participant_b || ''),
@@ -494,16 +570,18 @@ async function hydrateMatchDocs(
     });
   });
 
-  const allExchangeIds: string[] = [];
+  const exchangeEntries: Array<{
+    exId: string;
+    roleField: 'owner_id' | 'requester_id' | null;
+  }> = [];
   const exByMatch = new Map<string, ExchangeRecord[]>();
-  exSnaps.forEach((snap) => {
-    snap?.docs.forEach((eDoc) => {
-      const d = eDoc.data();
+  exLists.forEach(({ roleField, docs }) => {
+    docs.forEach(({ id: exId, data: d }) => {
       const mid = String(d.match_id || '');
-      allExchangeIds.push(eDoc.id);
+      exchangeEntries.push({ exId, roleField });
       const list = exByMatch.get(mid) ?? [];
       list.push({
-        id: eDoc.id,
+        id: exId,
         match_id: mid,
         status: d.status,
         proposed_date: d.proposed_date ? String(d.proposed_date) : null,
@@ -524,10 +602,20 @@ async function hydrateMatchDocs(
 
   const confByEx = new Map<string, ExchangeConfirmation[]>();
   await Promise.all(
-    allExchangeIds.map(async (exId) => {
-      const cSnap = await getDocs(
-        query(collection(db, 'exchange_confirmations'), where('exchange_id', '==', exId))
-      ).catch(() => null);
+    exchangeEntries.map(async ({ exId, roleField }) => {
+      const q =
+        currentUid && roleField
+          ? query(
+              collection(db, 'exchange_confirmations'),
+              where('exchange_id', '==', exId),
+              where(roleField, '==', currentUid)
+            )
+          : query(collection(db, 'exchange_confirmations'), where('exchange_id', '==', exId));
+
+      const cSnap = await getDocs(q).catch((err) => {
+        console.warn('Error consultando exchange_confirmations:', err);
+        return null;
+      });
       if (!cSnap) return;
       confByEx.set(
         exId,

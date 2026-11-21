@@ -51,4 +51,48 @@ check('Escrituras comunitarias exigen isVerifiedUser()', rules.includes('request
 // 12. Timestamps de servidor (request.time)
 check('Timestamps validados contra request.time', rules.includes('== request.time'));
 
+// 13. Semilla territorial en batch usa existsAfter en sectors
+check(
+  'Creación de sectores en batch usa existsAfter para comunas',
+  rules.includes('existsAfter(/databases/$(database)/documents/communes/$(incoming().commune_id))')
+);
+
+// 14. Lecturas get nulas seguras (resource == null) en colecciones privadas/participantes
+for (const col of [
+  'users',
+  'product_interests',
+  'match_requests',
+  'matches',
+  'conversations',
+  'messages',
+  'exchanges',
+  'exchange_confirmations',
+  'reports',
+  'notifications',
+  'education_progress',
+]) {
+  const blockMatch = rules.match(new RegExp(`match /${col}/\\{[^}]+\\}[\\s\\S]*?allow get:[^;]+;`));
+  check(
+    `allow get en /${col} soporta resource == null`,
+    Boolean(blockMatch && blockMatch[0].includes('resource == null'))
+  );
+}
+
+// 15. Moderadores pueden listar usuarios en panel administrativo
+const usersBlock = rules.match(/match \/users\/\{userId\}[\s\S]*?allow list:[^;]+;/);
+check('Moderadores autorizados para listar /users', Boolean(usersBlock && usersBlock[0].includes('isModerator()')));
+
+// 16. Servicios de chat y matching filtran por participante en queries de Firestore
+const chatSrc = fs.readFileSync('src/services/chatService.ts', 'utf-8');
+const matchingSrc = fs.readFileSync('src/services/matchingService.ts', 'utf-8');
+check(
+  'chatService filtra conversations y messages por participant_a/participant_b',
+  chatSrc.includes("where('participant_a', '=='") && chatSrc.includes("where('participant_b', '=='")
+);
+check(
+  'matchingService filtra hydrateMatchDocs en conversations, exchanges y exchange_confirmations',
+  matchingSrc.includes("where('participant_a', '=='") &&
+    matchingSrc.includes('where(roleField')
+);
+
 console.log('\nTodos los invariantes de firestore.rules superaron la verificación TDD.');
